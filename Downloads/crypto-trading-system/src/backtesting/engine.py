@@ -22,6 +22,7 @@ import pandas as pd
 if TYPE_CHECKING:
     from src.data.funding import FundingRateFetcher
     from src.data.news import CryptoPanicFetcher
+    from src.data.onchain import ExchangeFlowFetcher
     from src.data.sentiment import FearGreedFetcher
     from src.llm.glm_client import GLMClient
 
@@ -239,6 +240,7 @@ class BacktestEngine:
         news_fetcher: CryptoPanicFetcher | None = None,
         funding_fetcher: FundingRateFetcher | None = None,
         sentiment_fetcher: FearGreedFetcher | None = None,
+        onchain_fetcher: ExchangeFlowFetcher | None = None,
     ) -> None:
         self.pairs = pairs
         self.timeframe = timeframe
@@ -254,6 +256,7 @@ class BacktestEngine:
         self._news_fetcher = news_fetcher
         self._funding_fetcher = funding_fetcher
         self._sentiment_fetcher = sentiment_fetcher
+        self._onchain_fetcher = onchain_fetcher
 
         # State (reset on each run)
         self._portfolio: float = initial_capital
@@ -606,6 +609,10 @@ class BacktestEngine:
             fear_greed_score = result.score
             fear_greed_label = result.label
 
+        exchange_netflow_btc: float | None = None
+        if self._onchain_fetcher is not None:
+            exchange_netflow_btc = self._onchain_fetcher.fetch()
+
         context = {
             "btc_price": btc_price,
             "btc_4h_change_pct": btc_4h_change,
@@ -615,6 +622,7 @@ class BacktestEngine:
             "funding_rates": funding_rates,
             "fear_greed_score": fear_greed_score,
             "fear_greed_label": fear_greed_label,
+            "exchange_netflow_btc": exchange_netflow_btc,
         }
 
         response = self._glm_client.get_regime(context)  # type: ignore[union-attr]
