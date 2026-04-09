@@ -36,8 +36,9 @@ SLIPPAGE = 0.0005
 
 ML_THRESHOLD = 0.65        # minimum confidence score for LONG entry
 ATR_MULT = 2.4             # ATR multiplier for take-profit distance
-BTC_MOMENTUM_CAP = 0.025   # reject longs when |btc_4h_change| > 2.5% (chaotic regimes)
-BTC_BULL_GATE = 0.0        # skip long entries when BTC 4h return is negative
+BTC_MOMENTUM_CAP = 0.025      # reject longs when |btc_4h_change| > 2.5% (chaotic regimes)
+BTC_BULL_GATE = 0.0           # skip long entries when BTC 4h return is negative
+MAX_CONCURRENT_POSITIONS = 5  # max open long positions at once (prevents correlated cascades)
 
 
 # ---------------------------------------------------------------------------
@@ -481,6 +482,10 @@ class BacktestEngine:
         for pair in self.pairs:
             if pair in self._positions:
                 continue  # already in position
+
+            # Concurrent position cap: prevent correlated cascade failures
+            if len(self._positions) >= MAX_CONCURRENT_POSITIONS:
+                break
 
             pair_df = candles.get(pair)
             if pair_df is None:
