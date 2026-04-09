@@ -117,8 +117,8 @@
         "Tests pass"
       ],
       "priority": 7,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created src/data/onchain.py with ExchangeFlowFetcher. Uses CoinGlass public API (/public/v2/indicator/exchange_netflow); extracts last list entry's 'netflow' field. 4h in-memory cache using time.monotonic(). Added onchain_fetcher param to BacktestEngine.__init__ and _get_glm_regime context. exchange_netflow_btc always present in context (None when fetcher absent). Wired in PaperTrader. 7 tests pass (5 unit + 2 integration)."
     },
     {
       "id": "MED-004",

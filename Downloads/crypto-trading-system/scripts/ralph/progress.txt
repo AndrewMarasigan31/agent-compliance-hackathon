@@ -64,3 +64,10 @@ Based on 38-day live performance analysis (Mar 2 – Apr 8, 2026):
   4. Extra rows added in tick-2 tests must also be at a higher price than the new iloc[-5]
 - The iloc[-5] index shifts as you append rows — always recalculate which index will be at the base price after extension
 - All 32 tests pass (4 new for MED-002)
+
+### MED-003 — On-chain exchange flow (2026-04-09)
+- Created `src/data/onchain.py` with `ExchangeFlowFetcher`; uses CoinGlass free public API (no auth)
+- 4h cache via `time.monotonic()` — no external cache dependency
+- `exchange_netflow_btc` added to GLM context dict unconditionally (None when fetcher absent)
+- Added `onchain_fetcher` param to `BacktestEngine.__init__` and wired in PaperTrader
+- All 39 tests pass (7 new for MED-003)
