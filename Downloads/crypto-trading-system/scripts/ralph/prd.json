@@ -66,8 +66,8 @@
         "Tests pass"
       ],
       "priority": 4,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "src/data/news.py did not exist — the engine imported CryptoPanicFetcher but the module was missing. Created from scratch. Root cause of historical 404: CryptoPanic deprecated their free /api/v1/posts/ endpoint on 2026-03-01. Replaced with: primary=CryptoCompare News API (free, no auth), fallback=CoinDesk RSS. Both degrade to [] on any error. 9 tests pass."
     },
     {
       "id": "MED-001",

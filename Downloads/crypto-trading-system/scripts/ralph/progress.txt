@@ -38,3 +38,11 @@ Based on 38-day live performance analysis (Mar 2 – Apr 8, 2026):
 - Cooldown check in `_step` uses `continue` (not `break`) so other pairs can still open even if one pair is cooling
 - Key test design: to test stop-loss integration, build candles where the final price is below entry − 3%; inject position manually for direct _close_position tests
 - All 7 tests pass (4 unit tests on tracker, 3 integration tests on engine)
+
+### IMMED-004 — Fix news fetcher (2026-04-09)
+- `src/data/news.py` didn't exist at all — engine had a TYPE_CHECKING import but the module was never created
+- Root cause of historical 404: CryptoPanic deprecated their free `/api/v1/posts/` endpoint on 2026-03-01
+- Built the module from scratch: primary=CryptoCompare News API (free, no auth key needed), fallback=CoinDesk RSS parsed with xml.etree.ElementTree
+- Both sources return `list[str]` and swallow all exceptions → always safe to call
+- `CryptoPanicFetcher` class kept as the public name for backward compatibility with engine imports
+- 9 tests pass (3 per source + 3 integration tests on the combined fetcher)
