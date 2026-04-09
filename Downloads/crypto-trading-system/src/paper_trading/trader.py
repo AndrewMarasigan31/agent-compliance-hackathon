@@ -72,12 +72,14 @@ class PaperTrader:
         self._funding_fetcher = None
         self._sentiment_fetcher = None
         self._onchain_fetcher = None
+        self._trends_fetcher = None
 
         if glm_regime:
             from src.data.funding import FundingRateFetcher
             from src.data.news import CryptoPanicFetcher
             from src.data.onchain import ExchangeFlowFetcher
             from src.data.sentiment import FearGreedFetcher
+            from src.data.trends import GoogleTrendsFetcher
             from src.llm.glm_client import GLMClient
 
             self._glm_client = GLMClient()
@@ -85,6 +87,7 @@ class PaperTrader:
             self._funding_fetcher = FundingRateFetcher()
             self._sentiment_fetcher = FearGreedFetcher()
             self._onchain_fetcher = ExchangeFlowFetcher()
+            self._trends_fetcher = GoogleTrendsFetcher()
 
         # Tracks date of the last tick for journal boundary detection
         self._prev_date_str: str | None = None
@@ -126,6 +129,7 @@ class PaperTrader:
             funding_fetcher=self._funding_fetcher,
             sentiment_fetcher=self._sentiment_fetcher,
             onchain_fetcher=self._onchain_fetcher,
+            trends_fetcher=self._trends_fetcher,
         )
         engine._portfolio = state.portfolio
         engine._positions = {
