@@ -40,13 +40,16 @@ _JOURNALS_DIR = Path("data/journals")
 TAKER_FEE = 0.001
 SLIPPAGE = 0.0005
 
-ML_THRESHOLD = 0.65        # minimum confidence score for LONG entry
+ML_THRESHOLD = 0.695       # minimum confidence score for LONG entry (raised from 0.65 — v0.3.0)
 ATR_MULT = 2.4             # ATR multiplier for take-profit distance
 BTC_MOMENTUM_CAP = 0.025      # reject longs when |btc_4h_change| > 2.5% (chaotic regimes)
-BTC_BULL_GATE = 0.0           # skip long entries when BTC 4h return is negative
+BTC_BULL_GATE = 0.0035        # skip long entries when BTC 4h return < +0.35% (raised from 0.0 — v0.3.0)
 MAX_CONCURRENT_POSITIONS = 5  # max open long positions at once (prevents correlated cascades)
 MIN_VOLUME_RATIO = 1.2        # minimum vol/avg20 ratio to confirm an entry signal
 RS_FILTER_ENABLED = True      # skip longs on tokens underperforming BTC over last 4h
+EXCLUDED_TOKENS: frozenset[str] = frozenset({"ADA/USDT"})  # structural losers — v0.3.0
+INTERMEDIATE_STOP_HOURS: int = 6      # check for intermediate stop after this many hours
+INTERMEDIATE_STOP_PCT: float = -0.015  # close if PnL < -1.5% at INTERMEDIATE_STOP_HOURS
 
 
 # ---------------------------------------------------------------------------
@@ -426,7 +429,11 @@ class BacktestEngine:
                     elif hold_hours >= 72:
                         self._close_position(pair, price, ts, "time_exit")
 
-                # 4. 12h barrier: activate trailing if in profit, force-close if not
+                # 4. Intermediate stop: exit if down >1.5% after 6h (cut drift losers early)
+                elif hold_hours >= INTERMEDIATE_STOP_HOURS and pnl_pct <= INTERMEDIATE_STOP_PCT:
+                    self._close_position(pair, price, ts, "intermediate_stop")
+
+                # 5. 12h barrier: activate trailing if in profit, force-close if not
                 elif hold_hours >= 12:
                     if pnl_pct > 0:
                         # Engage trailing stop; floor at entry + 0.5%
@@ -436,7 +443,7 @@ class BacktestEngine:
                     else:
                         self._close_position(pair, price, ts, "time_exit")
 
-                # 5. Hard max-hold safety valve
+                # 6. Hard max-hold safety valve
                 elif hold_hours >= 72:
                     self._close_position(pair, price, ts, "time_exit")
 
@@ -503,9 +510,9 @@ class BacktestEngine:
         if abs(self._last_btc_4h_change) > BTC_MOMENTUM_CAP:
             return
 
-        # BTC directional gate: skip long entries when BTC 4h return is negative.
-        # Treats missing BTC data (0.0) as neutral — does not block entry.
-        if self._last_btc_4h_change < BTC_BULL_GATE:
+        # BTC directional gate: require BTC 4h return >= BTC_BULL_GATE for long entries.
+        # Only applied when BTC candle data is actually available — no-op when absent.
+        if btc_window is not None and len(btc_window) >= 5 and self._last_btc_4h_change < BTC_BULL_GATE:
             return
 
         for pair in self.pairs:
@@ -515,6 +522,10 @@ class BacktestEngine:
             # Concurrent position cap: prevent correlated cascade failures
             if len(self._positions) >= MAX_CONCURRENT_POSITIONS:
                 break
+
+            # Excluded tokens: structural losers identified by backtest analysis
+            if pair in EXCLUDED_TOKENS:
+                continue
 
             # Token cooldown: skip pairs that hit a stop-loss within 48h
             if _cooldown_tracker.is_cooling(self._cooldowns, pair, ts):

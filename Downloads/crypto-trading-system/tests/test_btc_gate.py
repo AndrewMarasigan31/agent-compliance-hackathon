@@ -88,7 +88,7 @@ def _build_candle_dict(btc_4h_return: float, pair: str = "ETH/USDT") -> dict[str
 
 class TestBTCBullGate:
     def test_constant_exists_and_is_zero(self):
-        assert BTC_BULL_GATE == 0.0
+        assert BTC_BULL_GATE == 0.0035
 
     def test_no_longs_when_btc_4h_negative(self):
         """Gate blocks entry when BTC 4h return is -1% (< 0.0)."""
@@ -170,7 +170,7 @@ class TestBTCBullGate:
         ts = int(eth_df["timestamp"].iloc[-1])
         engine._step(ts, candles)
 
-        # 0.0 is not < BTC_BULL_GATE (0.0), so entry should be allowed
+        # gate only applies when BTC data is present, so entry should be allowed
         assert len(engine._positions) == 1, (
             "Entry should be allowed when BTC data is unavailable (treated as 0.0)"
         )

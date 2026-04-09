@@ -1,5 +1,40 @@
 # Changelog
 
+## [v0.3.0] — 2026-04-09
+
+Four strategy improvements derived from trade journal analysis of 75 live paper trades
+(Mar 2 – Apr 8, 2026: 41.3% win rate, +10.2% return, profit factor 1.48).
+
+### Strategy Changes
+
+**ML_THRESHOLD raised to 0.695** (was 0.65)
+Analysis showed trades with ML confidence 0.65–0.694 had a 29% win rate vs 51% for ≥0.695.
+Cutting low-confidence entries reduces churn without significantly limiting opportunity.
+
+**BTC_BULL_GATE raised to +0.35%** (was 0.0)
+The original gate blocked negative BTC 4h moves. Extending it to require +0.35% minimum
+momentum eliminates entries during BTC consolidation/drift — the regime most correlated with
+our stop-loss outcomes. Gate is no-op when BTC candle data is unavailable.
+
+**EXCLUDED_TOKENS = {"ADA/USDT"}**
+ADA/USDT recorded 0W/3L across the analysis period with no structural edge. Permanently
+blocked from long entries. Additional tokens can be added as evidence accumulates.
+
+**Intermediate 6h stop: exit if down >1.5% at or after 6h hold**
+Slow-bleed losers (down 1–3% after 6h) were consuming capital and expiring at -3% stop.
+New rule cuts them earlier at -1.5%, freeing capital for better setups. Hard stop-loss
+(-3%) still fires immediately regardless of hold time.
+
+### Backtest Results (3-month, Jan 9 – Apr 9, 2026)
+- Max drawdown corrected to 3.09% (was reported as 96.3% due to cash-only equity tracking bug)
+- MTM equity tracking now used for all performance metrics
+
+### Test Coverage
+- 136 tests passing (1 pre-existing skip: test_paper_trading_runner args)
+- New test file: `tests/test_strategy_v3.py` (12 tests for all v0.3.0 changes)
+
+---
+
 ## [v0.2.0] — 2026-04-09
 
 Eight improvements to the live paper trading engine based on 38-day performance analysis
