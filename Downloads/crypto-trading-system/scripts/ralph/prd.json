@@ -31,8 +31,8 @@
         "Tests pass"
       ],
       "priority": 2,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "MAX_CONCURRENT_POSITIONS = 5 added after BTC_BULL_GATE constant. Cap check added in _step entry loop after existing-position skip: break if len(self._positions) >= MAX_CONCURRENT_POSITIONS. Uses break (not continue) so we stop iterating once at cap. 3 tests pass."
     },
     {
       "id": "IMMED-003",

@@ -23,3 +23,10 @@ Based on 38-day live performance analysis (Mar 2 – Apr 8, 2026):
 - Gate is NOT triggered when BTC data is absent — `_last_btc_4h_change` defaults to 0.0, and `0.0 < 0.0` is False
 - Key test fixture lesson: BTC candle array must have exactly 1 candle at `btc_current` (the last one); if several trailing candles share the new price, `iloc[-5]` also lands on the new price and the computed return collapses to 0.0
 - All 5 tests pass: negative BTC blocks entry, positive BTC allows entry, existing positions survive, BTC-unavailable is a no-op, constant value check
+
+### IMMED-002 — Concurrent position cap (2026-04-09)
+- Added `MAX_CONCURRENT_POSITIONS = 5` constant next to `BTC_BULL_GATE` in engine.py
+- Added cap check in `_step` entry loop (after existing-position skip): `if len(self._positions) >= MAX_CONCURRENT_POSITIONS: break`
+- Used `break` not `continue` — once at cap, no point iterating remaining pairs
+- Key test design lesson: when testing "closing allows new entry", assert total count returns to 5 rather than a specific pair, because the freed slot is filled by the first eligible pair in iteration order (not necessarily the previously-skipped one)
+- All 3 tests pass: constant=5, 6 pairs → only 5 open, closing one → count re-fills to 5
