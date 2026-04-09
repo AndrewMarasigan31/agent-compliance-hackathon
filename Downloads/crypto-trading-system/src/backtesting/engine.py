@@ -44,6 +44,7 @@ BTC_MOMENTUM_CAP = 0.025      # reject longs when |btc_4h_change| > 2.5% (chaoti
 BTC_BULL_GATE = 0.0           # skip long entries when BTC 4h return is negative
 MAX_CONCURRENT_POSITIONS = 5  # max open long positions at once (prevents correlated cascades)
 MIN_VOLUME_RATIO = 1.2        # minimum vol/avg20 ratio to confirm an entry signal
+RS_FILTER_ENABLED = True      # skip longs on tokens underperforming BTC over last 4h
 
 
 # ---------------------------------------------------------------------------
@@ -513,6 +514,14 @@ class BacktestEngine:
             vol_ratio = current_volume / mean_volume_20 if mean_volume_20 > 0 else 1.0
             if vol_ratio < MIN_VOLUME_RATIO:
                 continue
+
+            # Relative strength filter: only enter tokens outperforming BTC on 4h return
+            if RS_FILTER_ENABLED and len(window) >= 5:
+                current_price = float(window["close"].iloc[-1])
+                price_4h_ago = float(window["close"].iloc[-5])
+                token_4h_return = (current_price - price_4h_ago) / price_4h_ago if price_4h_ago > 0 else 0.0
+                if token_4h_return <= self._last_btc_4h_change:
+                    continue
 
             confidence = self._scorer.score(pair, window, regime, btc_4h_change=self._last_btc_4h_change)
 

@@ -46,18 +46,25 @@ def _make_candles(
     start_ts: int = 1_700_000_000_000,
     interval_ms: int = 3_600_000,
 ) -> pd.DataFrame:
-    """Build candles where the first n-1 candles have avg_volume and the last has last_volume."""
+    """Build candles where the first n-1 candles have avg_volume and the last has last_volume.
+
+    Last 4 candles are at 1020 (base 1000) so token_4h_return = +2% > btc_4h_change(0.0),
+    passing the RS filter for entry-allowed tests.
+    """
     n = n_candles
     timestamps = [start_ts + i * interval_ms for i in range(n)]
-    close = 1_000.0
+    # Close: first n-4 at 1000, last 4 at 1020 → iloc[-5]=1000, iloc[-1]=1020, return=+2%
+    close_base = 1_000.0
+    close_hi = 1_020.0
+    closes = [close_base] * (n - 4) + [close_hi] * 4
     volumes = [avg_volume] * (n - 1) + [last_volume]
     return pd.DataFrame(
         {
             "timestamp": timestamps,
-            "open": [close] * n,
-            "high": [close * 1.001] * n,
-            "low": [close * 0.999] * n,
-            "close": [close] * n,
+            "open": closes,
+            "high": [c * 1.001 for c in closes],
+            "low": [c * 0.999 for c in closes],
+            "close": closes,
             "volume": volumes,
         }
     )

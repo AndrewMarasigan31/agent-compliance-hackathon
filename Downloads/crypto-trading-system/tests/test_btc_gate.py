@@ -75,8 +75,8 @@ def _build_candle_dict(btc_4h_return: float, pair: str = "ETH/USDT") -> dict[str
     ts_start = 1_700_000_000_000
     btc_df = _make_candles(btc_prices, start_ts=ts_start)
 
-    # Pair candles: same 55 timestamps so the window has >= 50 rows at the final ts
-    eth_prices = [2_000.0] * 55  # noqa: unchanged count
+    # ETH: last 4 candles at +2% so RS filter (token > BTC 4h) passes when BTC is <= 1%.
+    eth_prices = [2_000.0] * 51 + [2_040.0] * 4  # iloc[-5]=2000, iloc[-1]=2040 → +2%
     eth_df = _make_candles(eth_prices, start_ts=ts_start)
 
     return {"BTC/USDT": btc_df, pair: eth_df}
@@ -161,7 +161,8 @@ class TestBTCBullGate:
         """When BTC candles are absent, _last_btc_4h_change defaults to 0.0 — entry not blocked."""
         engine = _make_engine(scorer_confidence=0.9)
 
-        eth_prices = [2_000.0] * 50
+        # Last 4 candles at +2% so RS filter doesn't block when BTC unavailable (0.0 4h change)
+        eth_prices = [2_000.0] * 46 + [2_040.0] * 4
         ts_start = 1_700_000_000_000
         eth_df = _make_candles(eth_prices, start_ts=ts_start)
         candles = {"ETH/USDT": eth_df}  # no BTC candles

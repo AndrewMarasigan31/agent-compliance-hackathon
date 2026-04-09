@@ -62,10 +62,14 @@ def _make_engine(pairs: list[str], scorer_confidence: float = 0.9) -> BacktestEn
 
 
 def _build_candles(pairs: list[str], start_ts: int = 1_700_000_000_000) -> dict[str, pd.DataFrame]:
-    """Build a candle dict for each pair with 60 candles (no BTC, neutral gate)."""
+    """Build a candle dict for each pair with 60 candles (no BTC, neutral gate).
+
+    Last 4 candles are at +2% to pass the RS filter when BTC 4h change = 0.0.
+    """
     candles: dict[str, pd.DataFrame] = {}
     for pair in pairs:
-        candles[pair] = _make_candles([100.0] * 60, start_ts=start_ts)
+        # iloc[-5]=100.0, iloc[-1]=102.0 → token_4h_return=+2% > btc_4h_change(0.0)
+        candles[pair] = _make_candles([100.0] * 56 + [102.0] * 4, start_ts=start_ts)
     return candles
 
 
@@ -122,11 +126,11 @@ class TestPositionCap:
                 [
                     {
                         "timestamp": ts2,
-                        "open": 100.0,
-                        "high": 100.1,
-                        "low": 99.9,
-                        "close": 100.0,
-                        "volume": 1_500_000.0,  # 1.5x for vol filter
+                        "open": 104.0,
+                        "high": 104.1,
+                        "low": 103.9,
+                        "close": 104.0,  # >102 so token_4h_return>0 passes RS filter
+                        "volume": 1_500_000.0,
                     }
                 ]
             )

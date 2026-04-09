@@ -105,10 +105,11 @@ class TestEngineCooldown:
         start_ts = 1_700_000_000_000
         interval = 3_600_000
 
-        # 59 base candles (1M vol), entry candle (1.5M vol, passes filter), stop-loss candle (960 price)
+        # 61 candles total: 55 at 1000, 4 at 1020 (entry, +2% for RS filter), 1 at 960 (SL)
+        # At ts_open (index 59, price=1020): iloc[-5]=index55=1000, token_4h_return=+2% > btc(0%)
         n_base = 59
         timestamps = [start_ts + i * interval for i in range(n_base + 2)]
-        prices = [1_000.0] * (n_base + 1) + [960.0]
+        prices = [1_000.0] * 56 + [1_020.0] * 4 + [960.0]  # 61 total
         volumes = [1_000_000.0] * n_base + [1_500_000.0, 1_000_000.0]
         eth_df = pd.DataFrame({
             "timestamp": timestamps,
