@@ -50,8 +50,8 @@
         "Tests pass"
       ],
       "priority": 3,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created src/risk/cooldown.py with CooldownTracker (record_stop, is_cooling). Added stop_loss_cooldowns field to PaperState; updated save/load with .get() fallback for backward compat. Added self._cooldowns dict to BacktestEngine.__init__ and run(). _close_position records stop when reason=='stop_loss'. _step skips pairs where is_cooling() is True. PaperTrader.tick restores and persists cooldowns. Module-level _cooldown_tracker singleton avoids per-call instantiation. 7 tests pass."
     },
     {
       "id": "IMMED-004",

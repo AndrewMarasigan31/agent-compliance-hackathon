@@ -30,3 +30,11 @@ Based on 38-day live performance analysis (Mar 2 – Apr 8, 2026):
 - Used `break` not `continue` — once at cap, no point iterating remaining pairs
 - Key test design lesson: when testing "closing allows new entry", assert total count returns to 5 rather than a specific pair, because the freed slot is filled by the first eligible pair in iteration order (not necessarily the previously-skipped one)
 - All 3 tests pass: constant=5, 6 pairs → only 5 open, closing one → count re-fills to 5
+
+### IMMED-003 — Token cooldown tracker (2026-04-09)
+- Created `src/risk/cooldown.py` with `CooldownTracker`; module-level singleton in engine.py avoids per-call instantiation
+- Added `stop_loss_cooldowns: dict` to `PaperState` with `field(default_factory=dict)`; load_state uses `.get()` for backward compat with old state files
+- `_close_position` records cooldown only when `reason == 'stop_loss'`; take-profit/time-exit do not block re-entry
+- Cooldown check in `_step` uses `continue` (not `break`) so other pairs can still open even if one pair is cooling
+- Key test design: to test stop-loss integration, build candles where the final price is below entry − 3%; inject position manually for direct _close_position tests
+- All 7 tests pass (4 unit tests on tracker, 3 integration tests on engine)
