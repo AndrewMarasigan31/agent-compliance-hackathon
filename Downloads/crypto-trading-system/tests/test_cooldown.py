@@ -64,6 +64,8 @@ def _make_candles(
 ) -> pd.DataFrame:
     n = len(close_prices)
     timestamps = [start_ts + i * interval_ms for i in range(n)]
+    # Last candle has 1.5x volume so vol_ratio >= MIN_VOLUME_RATIO (1.2) for entry tests.
+    volumes = [1_000_000.0] * (n - 1) + [1_500_000.0]
     return pd.DataFrame(
         {
             "timestamp": timestamps,
@@ -71,7 +73,7 @@ def _make_candles(
             "high": [p * 1.001 for p in close_prices],
             "low": [p * 0.999 for p in close_prices],
             "close": close_prices,
-            "volume": [1_000_000.0] * n,
+            "volume": volumes,
         }
     )
 
@@ -103,29 +105,36 @@ class TestEngineCooldown:
         start_ts = 1_700_000_000_000
         interval = 3_600_000
 
-        # Build candles: 60 candles at 1000, then 1 candle at 960 (triggers -4% SL)
-        prices_up = [1_000.0] * 60
-        prices_down = [960.0]  # below -3% stop-loss
-        all_prices = prices_up + prices_down
-
-        eth_df = _make_candles(all_prices, start_ts=start_ts)
+        # 59 base candles (1M vol), entry candle (1.5M vol, passes filter), stop-loss candle (960 price)
+        n_base = 59
+        timestamps = [start_ts + i * interval for i in range(n_base + 2)]
+        prices = [1_000.0] * (n_base + 1) + [960.0]
+        volumes = [1_000_000.0] * n_base + [1_500_000.0, 1_000_000.0]
+        eth_df = pd.DataFrame({
+            "timestamp": timestamps,
+            "open": prices,
+            "high": [p * 1.001 for p in prices],
+            "low": [p * 0.999 for p in prices],
+            "close": prices,
+            "volume": volumes,
+        })
         candles = {"ETH/USDT": eth_df}
 
-        # Tick 1: open position at ts=60th candle
-        ts_open = start_ts + 59 * interval
+        # Tick 1: open position at entry candle (index 59, vol=1.5M)
+        ts_open = start_ts + n_base * interval
         engine._step(ts_open, candles)
         assert len(engine._positions) == 1, "position should open"
 
         # Tick 2: price drops to 960 — triggers stop-loss
-        ts_stop = start_ts + 60 * interval
+        ts_stop = start_ts + (n_base + 1) * interval
         engine._step(ts_stop, candles)
         assert len(engine._positions) == 0, "stop-loss should close position"
         assert "ETH/USDT" in engine._cooldowns, "cooldown should be recorded"
 
-        # Tick 3 (1h later): same pair should not re-open
+        # Tick 3 (1h later): same pair should not re-open (in cooldown)
         ts_next = ts_stop + interval
         extra = pd.DataFrame(
-            [{"timestamp": ts_next, "open": 1_000.0, "high": 1_001.0, "low": 999.0, "close": 1_000.0, "volume": 1_000_000.0}]
+            [{"timestamp": ts_next, "open": 1_000.0, "high": 1_001.0, "low": 999.0, "close": 1_000.0, "volume": 1_500_000.0}]
         )
         candles2 = {"ETH/USDT": pd.concat([eth_df, extra], ignore_index=True)}
         engine._step(ts_next, candles2)

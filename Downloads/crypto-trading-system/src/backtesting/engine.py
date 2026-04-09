@@ -43,6 +43,7 @@ ATR_MULT = 2.4             # ATR multiplier for take-profit distance
 BTC_MOMENTUM_CAP = 0.025      # reject longs when |btc_4h_change| > 2.5% (chaotic regimes)
 BTC_BULL_GATE = 0.0           # skip long entries when BTC 4h return is negative
 MAX_CONCURRENT_POSITIONS = 5  # max open long positions at once (prevents correlated cascades)
+MIN_VOLUME_RATIO = 1.2        # minimum vol/avg20 ratio to confirm an entry signal
 
 
 # ---------------------------------------------------------------------------
@@ -504,6 +505,13 @@ class BacktestEngine:
 
             window = pair_df[pair_df["timestamp"] <= ts].tail(200)
             if len(window) < 50:
+                continue
+
+            # Volume confirmation: skip entries on low-volume moves
+            current_volume = float(window["volume"].iloc[-1])
+            mean_volume_20 = float(window["volume"].tail(20).mean())
+            vol_ratio = current_volume / mean_volume_20 if mean_volume_20 > 0 else 1.0
+            if vol_ratio < MIN_VOLUME_RATIO:
                 continue
 
             confidence = self._scorer.score(pair, window, regime, btc_4h_change=self._last_btc_4h_change)

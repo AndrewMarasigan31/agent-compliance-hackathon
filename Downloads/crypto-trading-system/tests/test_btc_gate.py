@@ -23,13 +23,15 @@ def _make_candles(close_prices: list[float], start_ts: int = 1_700_000_000_000, 
     """Build a minimal OHLCV DataFrame from a list of close prices."""
     n = len(close_prices)
     timestamps = [start_ts + i * interval_ms for i in range(n)]
+    # Last candle has 1.5x volume so vol_ratio >= MIN_VOLUME_RATIO (1.2) for entry tests.
+    volumes = [1_000_000.0] * (n - 1) + [1_500_000.0]
     return pd.DataFrame({
         "timestamp": timestamps,
         "open": close_prices,
         "high": [p * 1.001 for p in close_prices],
         "low": [p * 0.999 for p in close_prices],
         "close": close_prices,
-        "volume": [1_000_000.0] * n,
+        "volume": volumes,
     })
 
 
