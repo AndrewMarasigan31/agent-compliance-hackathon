@@ -25,6 +25,10 @@ if TYPE_CHECKING:
     from src.data.sentiment import FearGreedFetcher
     from src.llm.glm_client import GLMClient
 
+from src.risk.cooldown import CooldownTracker
+
+_cooldown_tracker = CooldownTracker()
+
 logger = logging.getLogger(__name__)
 
 _REPORTS_DIR = Path("data/backtests")
@@ -261,6 +265,8 @@ class BacktestEngine:
         self._last_btc_4h_change: float = 0.0
         self._last_fear_greed: float = 0.0
         self._last_regime_confidence: int = 100
+        # Cooldown tracker: pair -> stop-loss exit ts_ms (reset on each run)
+        self._cooldowns: dict[str, int] = {}
 
     # ------------------------------------------------------------------
     # Public API
@@ -283,6 +289,7 @@ class BacktestEngine:
         self._last_btc_4h_change = 0.0
         self._last_fear_greed = 0.0
         self._last_regime_confidence = 100
+        self._cooldowns = {}
 
         start_ms = self._to_ms(start)
         end_ms = self._to_ms(end)
@@ -487,6 +494,10 @@ class BacktestEngine:
             if len(self._positions) >= MAX_CONCURRENT_POSITIONS:
                 break
 
+            # Token cooldown: skip pairs that hit a stop-loss within 48h
+            if _cooldown_tracker.is_cooling(self._cooldowns, pair, ts):
+                continue
+
             pair_df = candles.get(pair)
             if pair_df is None:
                 continue
@@ -606,6 +617,8 @@ class BacktestEngine:
         pos = self._positions.pop(pair, None)
         if pos is None:
             return
+        if reason == "stop_loss":
+            _cooldown_tracker.record_stop(self._cooldowns, pair, ts)
         if pos.direction == "long":
             fill_price = price * (1.0 - SLIPPAGE)
             proceeds = pos.quantity * fill_price
