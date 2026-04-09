@@ -82,8 +82,8 @@
         "Tests pass"
       ],
       "priority": 5,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "MIN_VOLUME_RATIO = 1.2 added next to MAX_CONCURRENT_POSITIONS. Volume check added in _step after window fetch: compute vol_ratio = current_volume / mean_volume_20; skip if < 1.2; default to 1.0 when mean=0. Adding the filter broke existing tests that used flat 1M volume (ratio=1.0). Fixed by setting last-candle volume to 1.5M in all test fixtures. Stop-loss cooldown test needed bespoke candle construction to place the volume spike at the entry tick (not the SL tick). 4 new tests pass; all 28 total pass."
     },
     {
       "id": "MED-002",

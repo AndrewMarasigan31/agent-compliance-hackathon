@@ -46,3 +46,10 @@ Based on 38-day live performance analysis (Mar 2 – Apr 8, 2026):
 - Both sources return `list[str]` and swallow all exceptions → always safe to call
 - `CryptoPanicFetcher` class kept as the public name for backward compatibility with engine imports
 - 9 tests pass (3 per source + 3 integration tests on the combined fetcher)
+
+### MED-001 — Volume confirmation filter (2026-04-09)
+- `MIN_VOLUME_RATIO = 1.2` added next to `MAX_CONCURRENT_POSITIONS` in engine.py
+- Volume check in `_step`: `vol_ratio = current_volume / mean_volume_20`; `1.0` when mean=0 (division-by-zero guard)
+- IMPORTANT LESSON: adding a new entry filter breaks existing tests that use flat uniform volumes. All prior test fixtures had volume=1M across all candles → ratio=1.0 → blocked. Fixed by setting last-candle volume to 1.5M in each fixture. When adding future entry filters, update ALL existing test helpers immediately.
+- The cooldown stop-loss test required bespoke candle construction: the entry tick (index N) needs 1.5M volume, but the SL tick (index N+1) is at 960 price — can't use the generic _make_candles last-candle trick because the last candle is the SL candle.
+- All 28 tests pass (4 new for MED-001)
