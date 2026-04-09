@@ -53,3 +53,14 @@ Based on 38-day live performance analysis (Mar 2 – Apr 8, 2026):
 - IMPORTANT LESSON: adding a new entry filter breaks existing tests that use flat uniform volumes. All prior test fixtures had volume=1M across all candles → ratio=1.0 → blocked. Fixed by setting last-candle volume to 1.5M in each fixture. When adding future entry filters, update ALL existing test helpers immediately.
 - The cooldown stop-loss test required bespoke candle construction: the entry tick (index N) needs 1.5M volume, but the SL tick (index N+1) is at 960 price — can't use the generic _make_candles last-candle trick because the last candle is the SL candle.
 - All 28 tests pass (4 new for MED-001)
+
+### MED-002 — Relative strength filter (2026-04-09)
+- `RS_FILTER_ENABLED = True` added next to `MIN_VOLUME_RATIO`
+- RS check in `_step`: `token_4h_return = (iloc[-1] - iloc[-5]) / iloc[-5]`; skip if `<= _last_btc_4h_change`; bypass if `len(window) < 5`
+- CRITICAL LESSON: each new entry filter (`<= 0.0`) immediately breaks ALL existing tests that use flat prices. The pattern is:
+  1. New filter added
+  2. Existing tests have flat candle prices → ratio/return = 0.0 ≤ 0.0 → blocked
+  3. Fix: last 4 candles of EVERY test fixture must be at +2% above iloc[-5] price
+  4. Extra rows added in tick-2 tests must also be at a higher price than the new iloc[-5]
+- The iloc[-5] index shifts as you append rows — always recalculate which index will be at the base price after extension
+- All 32 tests pass (4 new for MED-002)

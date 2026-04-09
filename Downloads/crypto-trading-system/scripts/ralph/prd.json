@@ -98,8 +98,8 @@
         "Tests pass"
       ],
       "priority": 6,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "RS_FILTER_ENABLED=True added next to MIN_VOLUME_RATIO. Filter in _step: compute token_4h_return from window.iloc[-5]; skip if <= _last_btc_4h_change; bypass if window<5. Key fixture lesson: every new entry filter immediately breaks all tests with flat prices (token_4h_return=0.0 <= btc_4h_change=0.0). Fixed by making last 4 candles at +2% in all fixtures. Extra rows added in tick-2 tests need to be at >iloc[-5] price or RS blocks again. iloc[-5] with N+1 candles points to a different index than with N candles. All 32 tests pass."
     },
     {
       "id": "MED-003",
