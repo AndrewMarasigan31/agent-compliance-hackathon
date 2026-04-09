@@ -323,7 +323,7 @@ class BacktestEngine:
             if prev_date_str is not None and curr_date_str != prev_date_str:
                 self._write_journal(prev_date_str)
             self._step(ts, candles)
-            self._equity_curve.append((ts, self._portfolio))
+            self._equity_curve.append((ts, self._mtm_equity(ts, candles)))
             prev_date_str = curr_date_str
 
         # Close any remaining positions at last price
@@ -337,7 +337,7 @@ class BacktestEngine:
         if prev_date_str is not None:
             self._write_journal(prev_date_str)
 
-        self._equity_curve.append((all_timestamps[-1], self._portfolio))
+        self._equity_curve.append((all_timestamps[-1], self._portfolio))  # all positions closed
         return self.generate_report()
 
     def generate_report(self, save: bool = True) -> dict[str, Any]:
@@ -376,6 +376,20 @@ class BacktestEngine:
     # ------------------------------------------------------------------
     # Internal step logic
     # ------------------------------------------------------------------
+
+    def _mtm_equity(self, ts: int, candles: dict[str, pd.DataFrame]) -> float:
+        """Return cash + mark-to-market value of all open positions at ts."""
+        mtm = self._portfolio
+        for pair, pos in self._positions.items():
+            pair_df = candles.get(pair)
+            if pair_df is None:
+                continue
+            row = pair_df[pair_df["timestamp"] <= ts]
+            if row.empty:
+                continue
+            current_price = float(row.iloc[-1]["close"])
+            mtm += pos.quantity * current_price
+        return mtm
 
     def _step(self, ts: int, candles: dict[str, pd.DataFrame]) -> None:
         """Process one timestamp tick."""
