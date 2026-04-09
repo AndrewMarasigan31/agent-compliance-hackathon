@@ -1,0 +1,144 @@
+{
+  "project": "Aegis Trader Improvements",
+  "branchName": "ralph/trader-improvements",
+  "description": "Immediate and medium-term improvements to the live paper trading system based on 38-day performance analysis. Fixes identified issues: no token memory, correlated cascade failures, broken news feed, and missing signal filters. Adds on-chain and social velocity data sources.",
+  "userStories": [
+    {
+      "id": "IMMED-001",
+      "title": "Add BTC directional gate — only enter longs when BTC 4h is positive",
+      "description": "As the trading engine, I should skip long entries when BTC's 4h return is negative, so I stop buying into short-term downtrends. Analysis shows win rate drops from 48% to 36% when BTC 4h is negative. The engine already tracks `_last_btc_4h_change` in `src/backtesting/engine.py`. Add a `BTC_BULL_GATE = 0.0` constant and a guard in `_step` that skips long entries when `self._last_btc_4h_change < BTC_BULL_GATE`. The existing `BTC_MOMENTUM_CAP` check (line 472) blocks chaotic moves but does not filter direction — this is a separate, additive gate.",
+      "acceptanceCriteria": [
+        "Add `BTC_BULL_GATE: float = 0.0` constant near the top of `src/backtesting/engine.py` alongside `BTC_MOMENTUM_CAP`",
+        "In `_step`, after the `BTC_MOMENTUM_CAP` check, add: skip long entries when `self._last_btc_4h_change < BTC_BULL_GATE`",
+        "Gate only applies to new entries — existing open positions are not affected",
+        "Gate is a no-op when BTC candles are unavailable (treat as 0.0, do not block entry)",
+        "tests/test_btc_gate.py: test that no longs open when btc_4h = -0.01, test that longs open when btc_4h = +0.01, test that existing positions are not closed by the gate",
+        "Tests pass"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "BTC_BULL_GATE = 0.0 added after BTC_MOMENTUM_CAP constant. Guard added in _step after the momentum cap check. Gate is a no-op when BTC unavailable (defaults to 0.0, which is not < 0.0). 5 tests pass."
+    },
+    {
+      "id": "IMMED-002",
+      "title": "Add concurrent position cap — max 5 longs open at once",
+      "description": "As the trading engine, I should cap the number of simultaneously open long positions to prevent correlated cascade failures like the Mar 18 disaster (15 simultaneous longs, 10 stop-losses in one BTC dip). In `src/backtesting/engine.py`, add `MAX_CONCURRENT_POSITIONS: int = 5` constant. In `_step`, before opening any new position, count currently open longs and skip if at or above the cap.",
+      "acceptanceCriteria": [
+        "Add `MAX_CONCURRENT_POSITIONS: int = 5` constant near the top of `src/backtesting/engine.py`",
+        "In `_step` entry loop, before opening a position, skip if `len(self._positions) >= MAX_CONCURRENT_POSITIONS`",
+        "Closing positions reduces the count, allowing new entries next tick",
+        "tests/test_position_cap.py: test that exactly 5 positions open and a 6th is skipped, test that closing one allows a new one to open",
+        "Tests pass"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "IMMED-003",
+      "title": "Add token cooldown tracker — 48h block after stop-loss",
+      "description": "As the trading engine, I should block re-entry on any token that hit a stop-loss within the last 48 hours, to prevent repeatedly buying failing tokens (POWER lost 4 entries, PIPPIN lost 3). Create `src/risk/cooldown.py` with a `CooldownTracker` class. Add `stop_loss_cooldowns: dict[str, int]` field to `PaperState` in `src/paper_trading/state.py`. Wire the tracker into `BacktestEngine._step` in `src/backtesting/engine.py` so that when a position closes via `stop_loss`, the pair is recorded with its exit timestamp, and new entries on that pair are blocked for 48 hours.",
+      "acceptanceCriteria": [
+        "Create `src/risk/__init__.py` if it does not exist",
+        "Create `src/risk/cooldown.py` with `CooldownTracker` class that has `record_stop(pair, ts_ms)` and `is_cooling(pair, ts_ms, window_ms=172_800_000) -> bool` methods",
+        "Add `stop_loss_cooldowns: dict` field (default empty dict) to `PaperState` dataclass in `src/paper_trading/state.py`",
+        "In `BacktestEngine.__init__`, add `self._cooldowns: dict[str, int] = {}` to track stop-loss timestamps",
+        "In `_close_position`, when `reason == 'stop_loss'`, record `self._cooldowns[pair] = ts`",
+        "In `_step` entry loop, skip pairs where `CooldownTracker().is_cooling(pair, ts, ...)` returns True using `self._cooldowns`",
+        "In `PaperTrader.tick`, persist `engine._cooldowns` into `state.stop_loss_cooldowns` and restore on next tick",
+        "tests/test_cooldown.py: test that a pair blocked after stop-loss, test that it unblocks after 48h, test that take-profit exits do not trigger cooldown",
+        "Tests pass"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "IMMED-004",
+      "title": "Fix CryptoPanic news fetcher — 404 on every call since Mar 1",
+      "description": "As the trading system, I need working news headlines for the GLM regime detector. The CryptoPanic fetcher has been returning HTTP 404 on every call since the system launched, meaning the LLM has been making regime decisions without news context. Read `src/data/news.py` to find the broken endpoint. Fix the URL, update the auth mechanism if needed, or replace with an alternative free crypto news source (e.g. CryptoCompare News API free tier, or a public RSS feed parsed with feedparser). The fix must return a `list[str]` of headlines and degrade gracefully to an empty list on failure.",
+      "acceptanceCriteria": [
+        "Read `src/data/news.py` and identify the root cause of the 404",
+        "Fix the endpoint URL or replace with a working alternative that requires no new paid API key",
+        "The fetcher still returns `list[str]` headlines and returns `[]` on any API error (no exceptions propagate)",
+        "Add a fallback: if primary source fails, try one secondary source before returning empty list",
+        "tests/test_news.py: test happy path returns list of strings, test 404 returns empty list without raising, test fallback is attempted on primary failure",
+        "Tests pass"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "MED-001",
+      "title": "Add volume confirmation filter — skip entries on low-volume moves",
+      "description": "As the trading engine, I should only enter positions when volume confirms the move, to avoid being trapped in low-liquidity fakeouts. Many micro-cap losses (PIPPIN, POWER, MYX) occurred on thin volume. In `src/backtesting/engine.py`, add a volume check in `_step` before entry: compute the ratio of the current candle's volume to the 20-period average volume. Skip entry if `vol_ratio < MIN_VOLUME_RATIO`. The candle window already contains volume data.",
+      "acceptanceCriteria": [
+        "Add `MIN_VOLUME_RATIO: float = 1.2` constant near the top of `src/backtesting/engine.py`",
+        "In `_step` entry loop, after fetching the candle window, compute `vol_ratio = current_volume / mean_volume_20` where `current_volume` is the last candle's volume and `mean_volume_20` is `window['volume'].tail(20).mean()`",
+        "Skip entry if `vol_ratio < MIN_VOLUME_RATIO`",
+        "Guard against division by zero: if mean volume is 0, treat ratio as 1.0 (do not block entry)",
+        "tests/test_volume_filter.py: test entry blocked when volume is 1.0x average, test entry allowed when volume is 1.5x average, test no crash when volume data is all zeros",
+        "Tests pass"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "MED-002",
+      "title": "Add relative strength filter — only enter tokens outperforming BTC",
+      "description": "As the trading engine, I should only go long on tokens that are outperforming BTC over the last 4 hours, because tokens lagging BTC on up moves tend to get hit harder on reversals. This is the 'relative strength' filter. In `src/backtesting/engine.py` `_step`, compute the token's 4h return from the candle window and compare it to `self._last_btc_4h_change`. Skip the long entry if `token_4h_return <= self._last_btc_4h_change`.",
+      "acceptanceCriteria": [
+        "Add `RS_FILTER_ENABLED: bool = True` constant near the top of `src/backtesting/engine.py`",
+        "In `_step` entry loop, compute `token_4h_return = (current_price - price_4h_ago) / price_4h_ago` using `window.iloc[-5]` (4 candles back on 1h data)",
+        "When `RS_FILTER_ENABLED`, skip long entry if `token_4h_return <= self._last_btc_4h_change`",
+        "Skip the filter gracefully if window has fewer than 5 candles (do not block entry)",
+        "tests/test_rs_filter.py: test token with lower 4h return than BTC is skipped, test token with higher 4h return than BTC is allowed, test filter is bypassed when window is too short",
+        "Tests pass"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "MED-003",
+      "title": "Add on-chain exchange flow data source via CoinGlass free API",
+      "description": "As the GLM regime detector, I need exchange netflow data to identify when whales are moving BTC to exchanges (bearish) vs withdrawing (bullish). Create `src/data/onchain.py` with `ExchangeFlowFetcher` that calls the CoinGlass free public API for BTC exchange netflow. Cache results for 4 hours. Integrate the netflow value into the `context` dict in `BacktestEngine._get_glm_regime` so the LLM can reason about it. Degrade gracefully to `None` on failure.",
+      "acceptanceCriteria": [
+        "Create `src/data/onchain.py` with `ExchangeFlowFetcher` class",
+        "`ExchangeFlowFetcher.fetch() -> float | None` returns BTC exchange netflow in BTC (positive = inflow/bearish, negative = outflow/bullish) or None on error",
+        "Results cached in-memory for 4 hours (use timestamp comparison, not external cache)",
+        "Any HTTP error or parse error returns None without raising",
+        "In `BacktestEngine.__init__`, accept optional `onchain_fetcher` parameter",
+        "In `_get_glm_regime`, if `onchain_fetcher` is present, call `.fetch()` and add `exchange_netflow_btc` to context dict",
+        "In `PaperTrader.__init__`, instantiate `ExchangeFlowFetcher` and pass to engine",
+        "tests/test_onchain.py: test successful fetch returns float, test HTTP error returns None, test cached value returned within 4h, test GLM context includes netflow key when fetcher present",
+        "Tests pass"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "MED-004",
+      "title": "Add Google Trends social velocity signal for crypto sentiment",
+      "description": "As the GLM regime detector, I need a social velocity signal to detect when retail interest in crypto is spiking (often precedes tops) or collapsing (often precedes bottoms). Use `pytrends` (free, no API key) to fetch the 7-day Google Trends interest score for 'bitcoin' and 'crypto'. Create `src/data/trends.py` with `GoogleTrendsFetcher`. Cache for 6 hours (trends data changes slowly). Add the score to the GLM regime context.",
+      "acceptanceCriteria": [
+        "Add `pytrends` to `requirements.txt`",
+        "Create `src/data/trends.py` with `GoogleTrendsFetcher` class",
+        "`GoogleTrendsFetcher.fetch() -> dict | None` returns `{'bitcoin': int, 'crypto': int}` where values are 0-100 interest scores, or None on error",
+        "Results cached in-memory for 6 hours",
+        "Any exception from pytrends returns None without propagating",
+        "In `BacktestEngine.__init__`, accept optional `trends_fetcher` parameter",
+        "In `_get_glm_regime`, if `trends_fetcher` is present, call `.fetch()` and add `google_trends` dict to context",
+        "In `PaperTrader.__init__`, instantiate `GoogleTrendsFetcher` and pass to engine",
+        "tests/test_trends.py: test successful response returns dict with bitcoin and crypto keys, test exception returns None, test cache prevents second API call within 6h",
+        "Tests pass"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}

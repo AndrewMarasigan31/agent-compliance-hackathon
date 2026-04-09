@@ -1,0 +1,25 @@
+# Progress Log — Aegis Trader Improvements
+# Each Ralph iteration appends learnings here
+
+## Context
+Based on 38-day live performance analysis (Mar 2 – Apr 8, 2026):
+- 75 trades, 41.3% win rate, +10.2% return, profit factor 1.48
+- Key issues: no token memory, correlated cascades, broken news feed, no directional filter
+- All improvements target src/backtesting/engine.py as the core trading engine
+
+## Codebase Patterns
+- Core engine: src/backtesting/engine.py — BacktestEngine._step() is the entry/exit loop
+- Paper trading wrapper: src/paper_trading/trader.py — PaperTrader.tick() wraps BacktestEngine
+- State persistence: src/paper_trading/state.py — PaperState dataclass, JSON serialized
+- Constants are defined near top of engine.py (ML_THRESHOLD, ATR_MULT, BTC_MOMENTUM_CAP)
+- New data sources go in src/data/, injected into BacktestEngine via constructor + PaperTrader
+- Tests use unittest.mock to mock external HTTP calls — never hit real APIs in tests
+
+## Iteration History
+
+### IMMED-001 — BTC directional gate (2026-04-09)
+- Added `BTC_BULL_GATE = 0.0` constant next to `BTC_MOMENTUM_CAP` in engine.py
+- Added guard in `_step` after the momentum cap check: `if self._last_btc_4h_change < BTC_BULL_GATE: return`
+- Gate is NOT triggered when BTC data is absent — `_last_btc_4h_change` defaults to 0.0, and `0.0 < 0.0` is False
+- Key test fixture lesson: BTC candle array must have exactly 1 candle at `btc_current` (the last one); if several trailing candles share the new price, `iloc[-5]` also lands on the new price and the computed return collapses to 0.0
+- All 5 tests pass: negative BTC blocks entry, positive BTC allows entry, existing positions survive, BTC-unavailable is a no-op, constant value check
