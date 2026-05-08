@@ -8,10 +8,13 @@ export interface Store {
   rejectionReason: string;
 }
 
-export interface BeatResult {
+export interface ClusterResult {
   beatId: number;
-  gcu: string;
   color: string;
-  storeCount: number;
   stores: Store[];
+}
+
+export interface BeatResult extends ClusterResult {
+  gcu: string;
+  storeCount: number;
 }
