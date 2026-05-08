@@ -1,0 +1,25 @@
+## Codebase Patterns
+- Next.js 14 App Router with TypeScript and Tailwind CSS
+- iron-session for cookie-based auth (PLANNER_PASSWORD env var)
+- ml-kmeans for KMeans clustering
+- papaparse for CSV parsing
+- Leaflet.js for interactive maps
+- KML generation via string templates (XML-escaped output)
+- All store data is session-only — no database, no persistence
+
+---
+
+## 2026-05-08 - US-001
+Thread: N/A
+- Scaffolded Next.js 14 app with TypeScript and Tailwind CSS in beat-planner/ subdirectory
+- Installed iron-session v8, papaparse, leaflet, ml-kmeans, @types/leaflet, @types/papaparse
+- Created folder structure: app/, components/, lib/, types/
+- lib/session.ts configured with SessionOptions for iron-session v8 API
+- types/index.ts exports Store and BeatResult interfaces
+- Root page redirects to /login
+- Typecheck passes
+- **Learnings for future iterations:**
+  - iron-session v8 uses `SessionOptions` (not `IronSessionOptions`) and `getIronSession()` function
+  - beat-planner/ is a Next.js app inside the git repo root — all Next.js commands run from beat-planner/
+  - .env.local goes in beat-planner/ directory
+---
