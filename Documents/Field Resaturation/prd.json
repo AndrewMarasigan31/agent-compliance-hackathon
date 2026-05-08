@@ -1,0 +1,180 @@
+{
+  "project": "Field Agent Beat Planner",
+  "branchName": "ralph/beat-planner",
+  "description": "Web app for field supervisors to upload agent CSVs, auto-generate geographic beats per GCU using KMeans clustering, assign beats to days of the week, and download per-day KML files for Google My Maps.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Scaffold Next.js project with Tailwind and folder structure",
+      "description": "As a developer, I need the base Next.js 14 app with TypeScript and Tailwind CSS set up so that all other stories have a working foundation to build on.",
+      "acceptanceCriteria": [
+        "Next.js 14 app created with App Router and TypeScript",
+        "Tailwind CSS configured and working",
+        "Folder structure: app/, components/, lib/, types/",
+        "iron-session installed and configured with PLANNER_PASSWORD env variable",
+        "papaparse and leaflet npm packages installed",
+        "ml-kmeans npm package installed for clustering",
+        "Root page redirects to /login if no valid session",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "Login page with shared password",
+      "description": "As a supervisor, I want to log in with a shared password so that only authorized users can access the app.",
+      "acceptanceCriteria": [
+        "Login page at /login with single password input and submit button",
+        "Password checked against PLANNER_PASSWORD env variable via POST /api/auth/login",
+        "On success, iron-session cookie set and redirect to /dashboard",
+        "On failure, show 'Incorrect password' error message below the input",
+        "Logout button at /dashboard calls POST /api/auth/logout and redirects to /login",
+        "Middleware redirects unauthenticated requests from /dashboard to /login",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "CSV upload and parsing API route",
+      "description": "As a supervisor, I want to upload an agent CSV so that the system can read the store data.",
+      "acceptanceCriteria": [
+        "POST /api/upload accepts multipart/form-data with fields: file (CSV), agentName (string)",
+        "API parses CSV using papaparse and validates required columns: username, store_name, lat, long, gcu, last_delivered_date, 'bakit hindi umorder si customer?'",
+        "Excluded stores filtered out: 'Permanently Closed', 'Duplicate Account', 'Hindi mahanap yung tindahan'",
+        "Returns JSON: { agentName, totalStores, excludedCount, gcus: [{ gcu, storeCount }], stores: [...] }",
+        "Returns 400 with error message if file is missing, wrong format, or missing required columns",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "Dashboard upload UI with agent name input",
+      "description": "As a supervisor, I want a dashboard where I can enter the agent name and upload their CSV so I can start the beat planning process.",
+      "acceptanceCriteria": [
+        "Dashboard at /dashboard shows agent name text input (required) and CSV file drop zone",
+        "File drop zone accepts .csv files only, shows filename when selected",
+        "Upload button calls POST /api/upload with agentName and file",
+        "Loading state shown during upload",
+        "On success, show summary: total stores, excluded count, GCUs found with store counts",
+        "On error, show the error message returned by the API",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "KMeans clustering TypeScript implementation",
+      "description": "As a developer, I need a TypeScript function that clusters stores into geographic beats using KMeans with a minimum beat size so that beats can be generated from any GCU's stores.",
+      "acceptanceCriteria": [
+        "lib/clustering.ts exports function: createBeats(stores: Store[], minSize: number): BeatResult[]",
+        "Uses ml-kmeans package for initial clustering with n_clusters = floor(stores.length / minSize)",
+        "After initial clustering, iteratively merges the smallest cluster into its nearest neighbor (by centroid distance) until all clusters have >= minSize stores",
+        "Returns array of BeatResult: { beatId: number, stores: Store[], color: string }",
+        "Beat colors assigned from fixed palette of 10 colors cycling if more beats",
+        "Function handles edge case where stores.length < minSize (returns one beat with all stores)",
+        "Typecheck passes"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "Beat generation API route",
+      "description": "As a supervisor, I want beats to be auto-generated per GCU after uploading so that I can see the geographic groupings.",
+      "acceptanceCriteria": [
+        "POST /api/beats accepts JSON: { stores: Store[], minSize: number } (default minSize 75)",
+        "Groups stores by GCU, runs createBeats() per GCU",
+        "Beat IDs are unique across all GCUs (GCU A beats 0,1 + GCU B beats 2,3 etc.)",
+        "Returns JSON: { beats: [{ beatId, gcu, color, storeCount, stores: [{ username, store_name, lat, long, last_delivered_date, rejectionReason, daysDormant }] }] }",
+        "daysDormant calculated as today minus last_delivered_date in days; null if last_delivered_date is empty",
+        "Typecheck passes"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "Beat map view with Leaflet",
+      "description": "As a supervisor, I want to see all beats on an interactive map so that I can verify the geographic groupings look correct.",
+      "acceptanceCriteria": [
+        "After beat generation, map renders below the upload summary using Leaflet.js",
+        "Each store shown as a circle marker colored by its beat color",
+        "Clicking a marker shows popup: store name, last order date, rejection reason",
+        "GCU filter dropdown allows showing all GCUs or one specific GCU",
+        "Beat legend shown below map: colored swatch + Beat N label + store count",
+        "Map auto-fits bounds to show all stores",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "Day assignment UI per beat",
+      "description": "As a supervisor, I want to assign each beat to a day of the week so that I can plan the agent's weekly schedule.",
+      "acceptanceCriteria": [
+        "Below the map, a table lists all beats: Beat ID, GCU, store count, day dropdown",
+        "Day dropdown options: Unassigned, Monday, Tuesday, Wednesday, Thursday, Friday, Saturday",
+        "Multiple beats can share the same day",
+        "Summary row at bottom shows how many beats are assigned per day",
+        "Unassigned beats are excluded from KML download",
+        "Day assignments stored in React state (not persisted)",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "KML generation API route",
+      "description": "As a developer, I need an API route that generates a valid KML file for a given day's beats so that supervisors can download it for Google My Maps.",
+      "acceptanceCriteria": [
+        "POST /api/kml accepts JSON: { agentName: string, day: string, beats: BeatResult[] }",
+        "Returns KML file as download (Content-Disposition: attachment; filename=route-[agentName]-[day].kml)",
+        "KML structure: Document > Schema (ExtendedData fields) > Style per beat > Folder per beat > Placemark per store",
+        "ExtendedData columns per store: Beat, Last Order, Days Dormant, Rejection Reason",
+        "Pin icon uses http://maps.google.com/mapfiles/ms/micons/[color].png per beat",
+        "All text content XML-escaped (& → &amp;, < → &lt;, etc.)",
+        "Typecheck passes"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "Download KML by day UI",
+      "description": "As a supervisor, I want to select a day and download the KML for that day so that I can share it with the agent.",
+      "acceptanceCriteria": [
+        "Download section appears once at least one beat is assigned to a day",
+        "Day selector shows only days that have at least one beat assigned",
+        "Download button calls POST /api/kml and triggers browser file download",
+        "Button shows loading state while generating",
+        "Downloaded filename format: route-[agentName]-[day].kml (e.g. route-JuanDelacruz-monday.kml)",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}
