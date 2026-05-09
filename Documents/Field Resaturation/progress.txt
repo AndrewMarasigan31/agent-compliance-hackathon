@@ -63,3 +63,16 @@ Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
   - Spread Set into array before iterating to avoid TS2802 (downlevelIteration) error; tsconfig targets older ES
   - The existing beats-change useEffect only removes entries for deleted beats; active beats with changed stores need explicit invalidation at the reassign call site
 ---
+
+## 2026-05-09 - US-006
+Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
+- Added `onRoutesChange` prop to BeatMap; emits current `routedStores` state via useEffect whenever it changes
+- Dashboard maintains `routedStores` state, updated via `onRoutesChange` callback from BeatMap
+- `handleDownload` spreads `orderedStores` into each beat payload when that beat has been routed
+- KML endpoint accepts `BeatPayload` (BeatResult + optional `orderedStores`); uses `orderedStores ?? stores` for Placemark order
+- Unrouted beats fall back to existing `beat.stores` order — no regression
+- Files changed: beat-planner/components/BeatMap.tsx, beat-planner/app/dashboard/page.tsx, beat-planner/app/api/kml/route.ts
+- **Learnings for future iterations:**
+  - BeatMap internal state is surfaced to parents via optional callback props + useEffect; parent holds a mirror copy for features that need it (like KML export)
+  - KML endpoint uses a local `BeatPayload` type extending `BeatResult` — avoids polluting the shared types/index.ts with endpoint-specific fields
+---
