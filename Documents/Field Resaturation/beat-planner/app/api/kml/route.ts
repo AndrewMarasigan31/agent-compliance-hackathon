@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { BeatResult } from "@/types";
+import { BeatResult, BeatStore } from "@/types";
+
+type BeatPayload = BeatResult & { orderedStores?: BeatStore[] };
 
 function escapeXml(str: string): string {
   return String(str)
@@ -24,7 +26,7 @@ const COLOR_TO_ICON: Record<string, string> = {
 };
 
 export async function POST(req: NextRequest) {
-  const { agentName, day, beats }: { agentName: string; day: string; beats: BeatResult[] } =
+  const { agentName, day, beats }: { agentName: string; day: string; beats: BeatPayload[] } =
     await req.json();
 
   const styles = beats
@@ -40,7 +42,8 @@ export async function POST(req: NextRequest) {
 
   const folders = beats
     .map((beat) => {
-      const placemarks = beat.stores
+      const storesInOrder = beat.orderedStores ?? beat.stores;
+      const placemarks = storesInOrder
         .map(
           (store) => `    <Placemark>
         <name>${escapeXml(store.store_name)}</name>

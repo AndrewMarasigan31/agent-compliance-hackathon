@@ -8,6 +8,7 @@ type RouteStatus = "not-routed" | "loading" | "routed" | "error";
 interface BeatMapProps {
   beats: BeatResult[];
   onBeatsChange: (beats: BeatResult[]) => void;
+  onRoutesChange?: (routedStores: Record<number, BeatStore[]>) => void;
 }
 
 interface LassoSelection {
@@ -26,7 +27,7 @@ function pointInPolygon(lat: number, lng: number, polygon: [number, number][]): 
   return inside;
 }
 
-export default function BeatMap({ beats, onBeatsChange }: BeatMapProps) {
+export default function BeatMap({ beats, onBeatsChange, onRoutesChange }: BeatMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapInstanceRef = useRef<any>(null);
@@ -38,6 +39,10 @@ export default function BeatMap({ beats, onBeatsChange }: BeatMapProps) {
 
   const [routeStatuses, setRouteStatuses] = useState<Record<number, RouteStatus>>({});
   const [routedStores, setRoutedStores] = useState<Record<number, BeatStore[]>>({});
+
+  useEffect(() => {
+    onRoutesChange?.(routedStores);
+  }, [routedStores, onRoutesChange]);
 
   const gcus = Array.from(new Set(beats.map((b) => b.gcu))).sort();
   const visibleBeats = selectedGcu === "all" ? beats : beats.filter((b) => b.gcu === selectedGcu);

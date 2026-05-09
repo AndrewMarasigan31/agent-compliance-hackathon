@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import dynamic from "next/dynamic";
 import UploadForm from "@/components/UploadForm";
-import { Store, BeatResult } from "@/types";
+import { Store, BeatResult, BeatStore } from "@/types";
 
 const BeatMap = dynamic(() => import("@/components/BeatMap"), { ssr: false });
 
@@ -22,6 +22,7 @@ export default function DashboardPage() {
   const [beats, setBeats] = useState<BeatResult[] | null>(null);
   const [beatsLoading, setBeatsLoading] = useState(false);
   const [dayAssignments, setDayAssignments] = useState<Record<number, string>>({});
+  const [routedStores, setRoutedStores] = useState<Record<number, BeatStore[]>>({});
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -58,10 +59,14 @@ export default function DashboardPage() {
   async function handleDownload(day: string) {
     if (!beats || !uploadResult) return;
     const dayBeats = beats.filter((b) => dayAssignments[b.beatId] === day);
+    const beatsPayload = dayBeats.map((b) => ({
+      ...b,
+      ...(routedStores[b.beatId] ? { orderedStores: routedStores[b.beatId] } : {}),
+    }));
     const res = await fetch("/api/kml", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agentName: uploadResult.agentName, day, beats: dayBeats }),
+      body: JSON.stringify({ agentName: uploadResult.agentName, day, beats: beatsPayload }),
     });
     if (!res.ok) return;
     const blob = await res.blob();
@@ -99,14 +104,17 @@ export default function DashboardPage() {
 
         {beats && (
           <>
-            <BeatMap beats={beats} onBeatsChange={(updated) => {
-          setBeats(updated);
-          // Remove day assignments for any beats that were deleted
-          setDayAssignments((prev) => {
-            const validIds = new Set(updated.map((b) => b.beatId));
-            return Object.fromEntries(Object.entries(prev).filter(([id]) => validIds.has(Number(id))));
-          });
-        }} />
+            <BeatMap
+              beats={beats}
+              onBeatsChange={(updated) => {
+                setBeats(updated);
+                setDayAssignments((prev) => {
+                  const validIds = new Set(updated.map((b) => b.beatId));
+                  return Object.fromEntries(Object.entries(prev).filter(([id]) => validIds.has(Number(id))));
+                });
+              }}
+              onRoutesChange={(rs) => setRoutedStores(rs)}
+            />
 
             {/* Day assignment table */}
             <div className="mt-8">
