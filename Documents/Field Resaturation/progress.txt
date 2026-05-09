@@ -11,3 +11,15 @@ Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
   - Typecheck is `npx tsc --noEmit` from beat-planner directory
   - Matrix indexing: matrix[current][j] gives travel cost from current to j
 ---
+
+## 2026-05-09 - US-002
+Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
+- Implemented POST /api/route endpoint in beat-planner/app/api/route/route.ts
+- Computes centroid, finds nearest store to centroid as start, calls OSRM Table API, applies nearestNeighborTSP, returns orderedStores
+- Files changed: beat-planner/app/api/route/route.ts (new file)
+- **Learnings for future iterations:**
+  - Next.js API routes live at app/api/<name>/route.ts; file exports named HTTP method functions (POST, GET, etc.)
+  - OSRM Table API format: coords are lng,lat (longitude first), semicolon-separated
+  - OSRM response has a `durations` 2D array — pass directly as the distance matrix to nearestNeighborTSP
+  - Use AbortController with setTimeout for fetch timeouts (no built-in signal timeout in Node fetch)
+---
