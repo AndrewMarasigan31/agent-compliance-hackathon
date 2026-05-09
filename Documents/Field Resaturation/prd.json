@@ -1,20 +1,18 @@
 {
   "project": "Field Agent Beat Planner",
-  "branchName": "ralph/beat-planner",
-  "description": "Web app for field supervisors to upload agent CSVs, auto-generate geographic beats per GCU using KMeans clustering, assign beats to days of the week, and download per-day KML files for Google My Maps.",
+  "branchName": "ralph/recommended-route-per-beat",
+  "description": "Add a recommended visit route per beat using OSRM road-network routing (motorcycle profile). Supervisors trigger route generation from a beat list panel; routes are shown as numbered markers and a polyline on the map. Lasso reassignments clear stale routes. KML exports store stops in routed order.",
   "userStories": [
     {
       "id": "US-001",
-      "title": "Scaffold Next.js project with Tailwind and folder structure",
-      "description": "As a developer, I need the base Next.js 14 app with TypeScript and Tailwind CSS set up so that all other stories have a working foundation to build on.",
+      "title": "Nearest neighbor TSP algorithm",
+      "description": "As a developer, I need a nearest neighbor TSP function that takes a distance matrix and a starting index and returns the optimal store visit order so that beats can be routed efficiently.",
       "acceptanceCriteria": [
-        "Next.js 14 app created with App Router and TypeScript",
-        "Tailwind CSS configured and working",
-        "Folder structure: app/, components/, lib/, types/",
-        "iron-session installed and configured with PLANNER_PASSWORD env variable",
-        "papaparse and leaflet npm packages installed",
-        "ml-kmeans npm package installed for clustering",
-        "Root page redirects to /login if no valid session",
+        "lib/routing.ts exports function: nearestNeighborTSP(matrix: number[][], startIndex: number): number[]",
+        "Returns an ordered array of store indices of length N (one entry per store)",
+        "Every store index appears exactly once — no skips, no duplicates",
+        "Greedy nearest neighbor: at each step, picks the closest unvisited store using the matrix row of the current store",
+        "Works correctly for N=1 (returns [0]) and N=2 edge cases",
         "Typecheck passes"
       ],
       "priority": 1,
@@ -23,157 +21,87 @@
     },
     {
       "id": "US-002",
-      "title": "Login page with shared password",
-      "description": "As a supervisor, I want to log in with a shared password so that only authorized users can access the app.",
+      "title": "OSRM route API endpoint",
+      "description": "As a developer, I need a POST /api/route endpoint that calls the OSRM Table API to get road-network distances and returns an ordered store list so the client can render the route.",
       "acceptanceCriteria": [
-        "Login page at /login with single password input and submit button",
-        "Password checked against PLANNER_PASSWORD env variable via POST /api/auth/login",
-        "On success, iron-session cookie set and redirect to /dashboard",
-        "On failure, show 'Incorrect password' error message below the input",
-        "Logout button at /dashboard calls POST /api/auth/logout and redirects to /login",
-        "Middleware redirects unauthenticated requests from /dashboard to /login",
-        "Typecheck passes",
-        "Verify in browser using dev-browser skill"
+        "POST /api/route accepts JSON: { stores: Array<{ store_name: string, lat: number, long: number }> }",
+        "Computes beat centroid as mean of all store lat/lng values",
+        "Identifies starting store as the store with shortest Euclidean distance to the centroid",
+        "Calls OSRM Table API: GET https://router.project-osrm.org/table/v1/driving/{coords} where coords is 'lng,lat;lng,lat;...' (longitude first)",
+        "Applies nearestNeighborTSP() from lib/routing.ts using the OSRM durations matrix and the starting store index",
+        "Returns JSON: { orderedStores: Store[] } — stores sorted in visit sequence",
+        "Returns 500 with { error: string } if OSRM call fails (non-200, network error, or timeout)",
+        "Typecheck passes"
       ],
       "priority": 2,
-      "passes": true,
+      "passes": false,
       "notes": ""
     },
     {
       "id": "US-003",
-      "title": "CSV upload and parsing API route",
-      "description": "As a supervisor, I want to upload an agent CSV so that the system can read the store data.",
+      "title": "Beat list panel UI",
+      "description": "As a supervisor, I want a beat list panel on the map view so I can see all beats and trigger route generation per beat.",
       "acceptanceCriteria": [
-        "POST /api/upload accepts multipart/form-data with fields: file (CSV), agentName (string)",
-        "API parses CSV using papaparse and validates required columns: username, store_name, lat, long, gcu, last_delivered_date, 'bakit hindi umorder si customer?'",
-        "Excluded stores filtered out: 'Permanently Closed', 'Duplicate Account', 'Hindi mahanap yung tindahan'",
-        "Returns JSON: { agentName, totalStores, excludedCount, gcus: [{ gcu, storeCount }], stores: [...] }",
-        "Returns 400 with error message if file is missing, wrong format, or missing required columns",
-        "Typecheck passes"
+        "A scrollable panel is visible alongside the Leaflet map on the dashboard, listing all beats",
+        "Each beat row shows: colored swatch matching beat color, Beat ID, GCU, store count, route status badge, and a 'Generate Route' button",
+        "Route status badge shows one of three states: 'Not routed' (gray), 'Routed ✓' (green), 'Error' (red)",
+        "When 'Generate Route' is clicked, that row shows a loading spinner and the button is disabled",
+        "Panel list updates automatically when beats change (e.g. after lasso reassignment)",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 3,
-      "passes": true,
+      "passes": false,
       "notes": ""
     },
     {
       "id": "US-004",
-      "title": "Dashboard upload UI with agent name input",
-      "description": "As a supervisor, I want a dashboard where I can enter the agent name and upload their CSV so I can start the beat planning process.",
+      "title": "Route visualization on map",
+      "description": "As a supervisor, I want to see routed beats drawn on the map with numbered markers and a connecting polyline so I can visually verify the route makes geographic sense.",
       "acceptanceCriteria": [
-        "Dashboard at /dashboard shows agent name text input (required) and CSV file drop zone",
-        "File drop zone accepts .csv files only, shows filename when selected",
-        "Upload button calls POST /api/upload with agentName and file",
-        "Loading state shown during upload",
-        "On success, show summary: total stores, excluded count, GCUs found with store counts",
-        "On error, show the error message returned by the API",
+        "Clicking 'Generate Route' on a beat row calls POST /api/route with that beat's stores",
+        "On success: stores in the routed beat are displayed as numbered DivIcon markers (1, 2, 3...) colored to match the beat color, replacing the default circle markers for that beat",
+        "On success: a Leaflet Polyline is drawn connecting stores in visit sequence, colored to match the beat color",
+        "On success: beat row status updates to 'Routed ✓'",
+        "On error: beat row status updates to 'Error' with message 'Route failed — try again'; no markers or polyline drawn",
+        "All routed beats show their routes simultaneously on the map",
+        "Unrouted beats continue to show default circle markers",
         "Typecheck passes",
         "Verify in browser using dev-browser skill"
       ],
       "priority": 4,
-      "passes": true,
+      "passes": false,
       "notes": ""
     },
     {
       "id": "US-005",
-      "title": "KMeans clustering TypeScript implementation",
-      "description": "As a developer, I need a TypeScript function that clusters stores into geographic beats using KMeans with a minimum beat size so that beats can be generated from any GCU's stores.",
+      "title": "Lasso tool route invalidation",
+      "description": "As a supervisor, I want routes to be cleared when I reassign stores via the lasso tool so I never review a stale route.",
       "acceptanceCriteria": [
-        "lib/clustering.ts exports function: createBeats(stores: Store[], minSize: number): BeatResult[]",
-        "Uses ml-kmeans package for initial clustering with n_clusters = floor(stores.length / minSize)",
-        "After initial clustering, iteratively merges the smallest cluster into its nearest neighbor (by centroid distance) until all clusters have >= minSize stores",
-        "Returns array of BeatResult: { beatId: number, stores: Store[], color: string }",
-        "Beat colors assigned from fixed palette of 10 colors cycling if more beats",
-        "Function handles edge case where stores.length < minSize (returns one beat with all stores)",
-        "Typecheck passes"
+        "When stores are reassigned via the lasso tool, the route is cleared for both the source beat and the target beat",
+        "Both affected beats revert to 'Not routed' status in the beat list panel",
+        "Numbered markers and polyline for both affected beats are removed from the map; default circle markers are restored",
+        "Other beats' routes are unaffected by the reassignment",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 5,
-      "passes": true,
+      "passes": false,
       "notes": ""
     },
     {
       "id": "US-006",
-      "title": "Beat generation API route",
-      "description": "As a supervisor, I want beats to be auto-generated per GCU after uploading so that I can see the geographic groupings.",
+      "title": "KML export in routed order",
+      "description": "As a supervisor, I want the KML export to include stores in routed order so field agents follow the correct visit sequence in Google Maps.",
       "acceptanceCriteria": [
-        "POST /api/beats accepts JSON: { stores: Store[], minSize: number } (default minSize 75)",
-        "Groups stores by GCU, runs createBeats() per GCU",
-        "Beat IDs are unique across all GCUs (GCU A beats 0,1 + GCU B beats 2,3 etc.)",
-        "Returns JSON: { beats: [{ beatId, gcu, color, storeCount, stores: [{ username, store_name, lat, long, last_delivered_date, rejectionReason, daysDormant }] }] }",
-        "daysDormant calculated as today minus last_delivered_date in days; null if last_delivered_date is empty",
+        "When a beat has been routed, its Placemarks in the KML are written in visit sequence order (first store visited = first Placemark)",
+        "When a beat has NOT been routed, its stores are exported in the existing default order (no regression)",
+        "The routed order is passed from dashboard state to POST /api/kml — update the request payload to include orderedStores per beat where available",
+        "No other KML structure changes — ExtendedData fields, Style, colors, and folder structure remain identical",
         "Typecheck passes"
       ],
       "priority": 6,
-      "passes": true,
-      "notes": ""
-    },
-    {
-      "id": "US-007",
-      "title": "Beat map view with Leaflet",
-      "description": "As a supervisor, I want to see all beats on an interactive map so that I can verify the geographic groupings look correct.",
-      "acceptanceCriteria": [
-        "After beat generation, map renders below the upload summary using Leaflet.js",
-        "Each store shown as a circle marker colored by its beat color",
-        "Clicking a marker shows popup: store name, last order date, rejection reason",
-        "GCU filter dropdown allows showing all GCUs or one specific GCU",
-        "Beat legend shown below map: colored swatch + Beat N label + store count",
-        "Map auto-fits bounds to show all stores",
-        "Typecheck passes",
-        "Verify in browser using dev-browser skill"
-      ],
-      "priority": 7,
-      "passes": true,
-      "notes": ""
-    },
-    {
-      "id": "US-008",
-      "title": "Day assignment UI per beat",
-      "description": "As a supervisor, I want to assign each beat to a day of the week so that I can plan the agent's weekly schedule.",
-      "acceptanceCriteria": [
-        "Below the map, a table lists all beats: Beat ID, GCU, store count, day dropdown",
-        "Day dropdown options: Unassigned, Monday, Tuesday, Wednesday, Thursday, Friday, Saturday",
-        "Multiple beats can share the same day",
-        "Summary row at bottom shows how many beats are assigned per day",
-        "Unassigned beats are excluded from KML download",
-        "Day assignments stored in React state (not persisted)",
-        "Typecheck passes",
-        "Verify in browser using dev-browser skill"
-      ],
-      "priority": 8,
-      "passes": true,
-      "notes": ""
-    },
-    {
-      "id": "US-009",
-      "title": "KML generation API route",
-      "description": "As a developer, I need an API route that generates a valid KML file for a given day's beats so that supervisors can download it for Google My Maps.",
-      "acceptanceCriteria": [
-        "POST /api/kml accepts JSON: { agentName: string, day: string, beats: BeatResult[] }",
-        "Returns KML file as download (Content-Disposition: attachment; filename=route-[agentName]-[day].kml)",
-        "KML structure: Document > Schema (ExtendedData fields) > Style per beat > Folder per beat > Placemark per store",
-        "ExtendedData columns per store: Beat, Last Order, Days Dormant, Rejection Reason",
-        "Pin icon uses http://maps.google.com/mapfiles/ms/micons/[color].png per beat",
-        "All text content XML-escaped (& → &amp;, < → &lt;, etc.)",
-        "Typecheck passes"
-      ],
-      "priority": 9,
-      "passes": true,
-      "notes": ""
-    },
-    {
-      "id": "US-010",
-      "title": "Download KML by day UI",
-      "description": "As a supervisor, I want to select a day and download the KML for that day so that I can share it with the agent.",
-      "acceptanceCriteria": [
-        "Download section appears once at least one beat is assigned to a day",
-        "Day selector shows only days that have at least one beat assigned",
-        "Download button calls POST /api/kml and triggers browser file download",
-        "Button shows loading state while generating",
-        "Downloaded filename format: route-[agentName]-[day].kml (e.g. route-JuanDelacruz-monday.kml)",
-        "Typecheck passes",
-        "Verify in browser using dev-browser skill"
-      ],
-      "priority": 10,
-      "passes": true,
+      "passes": false,
       "notes": ""
     }
   ]

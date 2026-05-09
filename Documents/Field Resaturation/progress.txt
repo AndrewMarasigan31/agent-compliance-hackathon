@@ -1,43 +1,13 @@
-## Codebase Patterns
-- Next.js 14 App Router with TypeScript and Tailwind CSS
-- iron-session for cookie-based auth (PLANNER_PASSWORD env var)
-- ml-kmeans for KMeans clustering
-- papaparse for CSV parsing
-- Leaflet.js for interactive maps
-- KML generation via string templates (XML-escaped output)
-- All store data is session-only — no database, no persistence
-
+# Ralph Progress Log
+Started: Sat May  9 13:29:50 PST 2026
 ---
 
-## 2026-05-08 - US-002 through US-010
-Thread: N/A
-- US-002: Login page (/login), API routes /api/auth/login and /api/auth/logout, middleware for /dashboard protection
-- US-003: /api/upload - CSV parsing with papaparse, column validation, exclusion filtering
-- US-004: UploadForm component with drag-drop zone, loading state, GCU summary display
-- US-005: lib/clustering.ts - createBeats() using ml-kmeans with min-size merge loop
-- US-006: /api/beats - groups by GCU, runs createBeats() per GCU, assigns global beat IDs, calculates daysDormant
-- US-007: BeatMap component with Leaflet (dynamic import for SSR), GCU filter, circle markers, popups, legend
-- US-008: Day assignment table in dashboard with dropdown per beat and summary row
-- US-009: /api/kml - KML file generation with XML escaping, Style/Folder/Placemark structure
-- US-010: Download section in dashboard - day selector and download button with blob trigger
+## 2026-05-09 - US-001
+Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
+- Implemented nearestNeighborTSP in beat-planner/lib/routing.ts
+- Files changed: beat-planner/lib/routing.ts (new file)
 - **Learnings for future iterations:**
-  - ClusterResult (from lib/clustering.ts) and BeatResult (from types/index.ts) are separate types; API route converts between them
-  - Leaflet must be dynamically imported (SSR disabled) in Next.js App Router
-  - iron-session v8 middleware uses getIronSession(req, NextResponse.next(), options) — not cookies()
-  - BeatStore extends Store with daysDormant: number | null for the API response shape
----
-
-## 2026-05-08 - US-001
-Thread: N/A
-- Scaffolded Next.js 14 app with TypeScript and Tailwind CSS in beat-planner/ subdirectory
-- Installed iron-session v8, papaparse, leaflet, ml-kmeans, @types/leaflet, @types/papaparse
-- Created folder structure: app/, components/, lib/, types/
-- lib/session.ts configured with SessionOptions for iron-session v8 API
-- types/index.ts exports Store and BeatResult interfaces
-- Root page redirects to /login
-- Typecheck passes
-- **Learnings for future iterations:**
-  - iron-session v8 uses `SessionOptions` (not `IronSessionOptions`) and `getIronSession()` function
-  - beat-planner/ is a Next.js app inside the git repo root — all Next.js commands run from beat-planner/
-  - .env.local goes in beat-planner/ directory
+  - lib/ directory is for shared utility modules (see lib/clustering.ts pattern)
+  - Typecheck is `npx tsc --noEmit` from beat-planner directory
+  - Matrix indexing: matrix[current][j] gives travel cost from current to j
 ---
