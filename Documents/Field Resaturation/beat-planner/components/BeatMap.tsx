@@ -259,6 +259,19 @@ export default function BeatMap({ beats, onBeatsChange }: BeatMapProps) {
       })
       .filter((b) => b.stores.length > 0);
 
+    // Invalidate routes for all affected beats (source + target)
+    const affectedIds = [...sourceBeatIds, targetId];
+    setRouteStatuses((prev) => {
+      const next = { ...prev };
+      for (const id of affectedIds) delete next[id];
+      return next;
+    });
+    setRoutedStores((prev) => {
+      const next = { ...prev };
+      for (const id of affectedIds) delete next[id];
+      return next;
+    });
+
     onBeatsChange(updated);
     setLassoSelection(null);
     setWarning("");
