@@ -80,17 +80,17 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm px-6 py-4 flex items-center justify-between">
-        <h1 className="text-xl font-bold">Beat Planner</h1>
+      <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+        <h1 className="text-xl font-bold text-gray-900">Beat Planner</h1>
         <button
           onClick={handleLogout}
-          className="text-sm text-gray-600 hover:text-red-600 border border-gray-300 px-3 py-1 rounded"
+          className="text-sm text-white bg-red-500 hover:bg-red-600 px-4 py-1.5 rounded"
         >
           Logout
         </button>
       </header>
-      <main className="p-6 max-w-5xl mx-auto">
-        <h2 className="text-lg font-semibold mb-4">Upload Agent CSV</h2>
+      <main className="p-6 max-w-4xl mx-auto">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">Upload Agent CSV</h2>
         <UploadForm onSuccess={(data) => handleUploadSuccess(data as UploadResult)} />
 
         {beatsLoading && (
@@ -99,7 +99,14 @@ export default function DashboardPage() {
 
         {beats && (
           <>
-            <BeatMap beats={beats} />
+            <BeatMap beats={beats} onBeatsChange={(updated) => {
+          setBeats(updated);
+          // Remove day assignments for any beats that were deleted
+          setDayAssignments((prev) => {
+            const validIds = new Set(updated.map((b) => b.beatId));
+            return Object.fromEntries(Object.entries(prev).filter(([id]) => validIds.has(Number(id))));
+          });
+        }} />
 
             {/* Day assignment table */}
             <div className="mt-8">
