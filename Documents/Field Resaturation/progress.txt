@@ -23,3 +23,20 @@ Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
   - OSRM response has a `durations` 2D array — pass directly as the distance matrix to nearestNeighborTSP
   - Use AbortController with setTimeout for fetch timeouts (no built-in signal timeout in Node fetch)
 ---
+
+## 2026-05-09 - US-003
+Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
+- Added Beat Routes panel alongside the Leaflet map in BeatMap.tsx
+- Panel is a scrollable w-72 sidebar showing each beat: colored swatch, Beat ID, GCU, store count, route status badge, Generate Route button
+- Added RouteStatus type ("not-routed" | "loading" | "routed" | "error") and routeStatuses state (Record<number, RouteStatus>)
+- Route status badge shows gray/blue/green/red for each state; button shows spinner and is disabled during loading
+- useEffect clears stale routeStatuses when beats array changes (handles lasso reassignment removing beats)
+- handleGenerateRoute stub sets status to "loading"; US-004 will complete the API call
+- Map wrapped in flex layout (flex-1) alongside panel (w-72 flex-shrink-0)
+- Files changed: beat-planner/components/BeatMap.tsx
+- **Learnings for future iterations:**
+  - routeStatuses and handleGenerateRoute live in BeatMap — US-004 should extend handleGenerateRoute there (not in dashboard/page.tsx)
+  - The panel uses `beats` prop directly (not visibleBeats/filtered) so all beats always show regardless of GCU filter
+  - dev-browser skill was not available; browser verification skipped — typecheck passed
+  - BeatMap had substantial uncommitted changes from prior sessions (lasso tool, etc.) — committed together with US-003
+---
