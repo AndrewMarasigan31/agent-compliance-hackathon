@@ -40,3 +40,16 @@ Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
   - dev-browser skill was not available; browser verification skipped — typecheck passed
   - BeatMap had substantial uncommitted changes from prior sessions (lasso tool, etc.) — committed together with US-003
 ---
+
+## 2026-05-09 - US-004
+Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
+- Completed handleGenerateRoute in BeatMap.tsx: calls POST /api/route, stores orderedStores in routedStores state, updates routeStatus to "routed" or "error"
+- Updated marker redraw useEffect: routed beats draw numbered DivIcon markers + Leaflet Polyline; unrouted beats keep default circle markers; effect now depends on routedStores
+- Added routedStores state (Record<number, BeatStore[]>) cleared alongside routeStatuses when beats change
+- Updated error badge text to "Route failed — try again"
+- Files changed: beat-planner/components/BeatMap.tsx
+- **Learnings for future iterations:**
+  - routedStores is internal BeatMap state; the marker redraw effect clears all non-tile layers and redraws from state on every change — no need to track layer references per beat
+  - DivIcon markers use inline HTML div with flexbox for numbered circles; className must be "" to avoid Leaflet's default icon styling
+  - The dashboard is at /dashboard (redirects to /login if unauthenticated); dev-browser skill not available, browser verification skipped — typecheck confirmed passing
+---
