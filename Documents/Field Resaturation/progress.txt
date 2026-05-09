@@ -53,3 +53,13 @@ Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
   - DivIcon markers use inline HTML div with flexbox for numbered circles; className must be "" to avoid Leaflet's default icon styling
   - The dashboard is at /dashboard (redirects to /login if unauthenticated); dev-browser skill not available, browser verification skipped — typecheck confirmed passing
 ---
+
+## 2026-05-09 - US-005
+Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
+- Added route invalidation in handleReassign: clears routeStatuses and routedStores for all source beats + target beat before calling onBeatsChange
+- Both affected beats revert to "Not routed" status and markers/polylines are removed by the existing marker redraw useEffect
+- Files changed: beat-planner/components/BeatMap.tsx
+- **Learnings for future iterations:**
+  - Spread Set into array before iterating to avoid TS2802 (downlevelIteration) error; tsconfig targets older ES
+  - The existing beats-change useEffect only removes entries for deleted beats; active beats with changed stores need explicit invalidation at the reassign call site
+---
