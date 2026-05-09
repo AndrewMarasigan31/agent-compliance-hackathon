@@ -37,11 +37,12 @@ export default function BeatMap({ beats, onBeatsChange }: BeatMapProps) {
   const [warning, setWarning] = useState("");
 
   const [routeStatuses, setRouteStatuses] = useState<Record<number, RouteStatus>>({});
+  const [routedStores, setRoutedStores] = useState<Record<number, BeatStore[]>>({});
 
   const gcus = Array.from(new Set(beats.map((b) => b.gcu))).sort();
   const visibleBeats = selectedGcu === "all" ? beats : beats.filter((b) => b.gcu === selectedGcu);
 
-  // Clear stale route statuses when beats change (e.g. after lasso reassignment)
+  // Clear stale route statuses and routed stores when beats change (e.g. after lasso reassignment)
   useEffect(() => {
     const validIds = new Set(beats.map((b) => b.beatId));
     setRouteStatuses((prev) => {
@@ -51,11 +52,32 @@ export default function BeatMap({ beats, onBeatsChange }: BeatMapProps) {
       }
       return next;
     });
+    setRoutedStores((prev) => {
+      const next = { ...prev };
+      for (const id in next) {
+        if (!validIds.has(Number(id))) delete next[id];
+      }
+      return next;
+    });
   }, [beats]);
 
   async function handleGenerateRoute(beatId: number) {
+    const beat = beats.find((b) => b.beatId === beatId);
+    if (!beat) return;
     setRouteStatuses((prev) => ({ ...prev, [beatId]: "loading" }));
-    // US-004 will implement the actual API call and map visualization here
+    try {
+      const res = await fetch("/api/route", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stores: beat.stores }),
+      });
+      if (!res.ok) throw new Error("Route failed");
+      const data = await res.json();
+      setRoutedStores((prev) => ({ ...prev, [beatId]: data.orderedStores }));
+      setRouteStatuses((prev) => ({ ...prev, [beatId]: "routed" }));
+    } catch {
+      setRouteStatuses((prev) => ({ ...prev, [beatId]: "error" }));
+    }
   }
 
   // Init map + draw control once
@@ -132,7 +154,7 @@ export default function BeatMap({ beats, onBeatsChange }: BeatMapProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Redraw markers when beats or filter changes
+  // Redraw markers when beats, filter, or routes change
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
@@ -155,18 +177,43 @@ export default function BeatMap({ beats, onBeatsChange }: BeatMapProps) {
 
     const allLatLngs: [number, number][] = [];
     for (const beat of visibleBeats) {
-      for (const store of beat.stores) {
-        const circle = Lx.circleMarker([store.lat, store.long], {
-          radius: 6, color: beat.color, fillColor: beat.color,
-          fillOpacity: 0.8, weight: 1,
+      const ordered = routedStores[beat.beatId];
+      if (ordered && ordered.length > 0) {
+        // Draw polyline connecting stores in visit sequence
+        const latlngs: [number, number][] = ordered.map((s) => [s.lat, s.long]);
+        Lx.polyline(latlngs, { color: beat.color, weight: 3, opacity: 0.8 }).addTo(map);
+        // Draw numbered DivIcon markers
+        ordered.forEach((store, i) => {
+          const icon = Lx.divIcon({
+            html: `<div style="width:24px;height:24px;border-radius:50%;background:${beat.color};color:white;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;border:2px solid white;box-shadow:0 1px 3px rgba(0,0,0,0.3)">${i + 1}</div>`,
+            className: "",
+            iconSize: [24, 24],
+            iconAnchor: [12, 12],
+          });
+          const marker = Lx.marker([store.lat, store.long], { icon });
+          marker.bindPopup(
+            `<b>${store.store_name}</b><br/>Beat ${beat.beatId} · Stop #${i + 1}<br/>` +
+            `Last order: ${store.last_delivered_date || "N/A"}<br/>` +
+            `Reason: ${store.rejectionReason || "N/A"}`
+          );
+          marker.addTo(map);
+          allLatLngs.push([store.lat, store.long]);
         });
-        circle.bindPopup(
-          `<b>${store.store_name}</b><br/>Beat ${beat.beatId}<br/>` +
-          `Last order: ${store.last_delivered_date || "N/A"}<br/>` +
-          `Reason: ${store.rejectionReason || "N/A"}`
-        );
-        circle.addTo(map);
-        allLatLngs.push([store.lat, store.long]);
+      } else {
+        // Draw default circle markers for unrouted beats
+        for (const store of beat.stores) {
+          const circle = Lx.circleMarker([store.lat, store.long], {
+            radius: 6, color: beat.color, fillColor: beat.color,
+            fillOpacity: 0.8, weight: 1,
+          });
+          circle.bindPopup(
+            `<b>${store.store_name}</b><br/>Beat ${beat.beatId}<br/>` +
+            `Last order: ${store.last_delivered_date || "N/A"}<br/>` +
+            `Reason: ${store.rejectionReason || "N/A"}`
+          );
+          circle.addTo(map);
+          allLatLngs.push([store.lat, store.long]);
+        }
       }
     }
 
@@ -174,7 +221,7 @@ export default function BeatMap({ beats, onBeatsChange }: BeatMapProps) {
       map.fitBounds(allLatLngs);
       map._fitted = true;
     }
-  }, [visibleBeats, beats]);
+  }, [visibleBeats, beats, routedStores]);
 
   function handleReassign() {
     if (targetBeatId === "" || !lassoSelection) return;
@@ -270,7 +317,7 @@ export default function BeatMap({ beats, onBeatsChange }: BeatMapProps) {
                       <span className="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded-full whitespace-nowrap">Routed ✓</span>
                     )}
                     {status === "error" && (
-                      <span className="text-xs px-2 py-0.5 bg-red-100 text-red-600 rounded-full whitespace-nowrap">Error</span>
+                      <span className="text-xs px-2 py-0.5 bg-red-100 text-red-600 rounded-full whitespace-nowrap">Route failed — try again</span>
                     )}
                     <button
                       onClick={() => handleGenerateRoute(beat.beatId)}
