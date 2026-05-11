@@ -1,5 +1,5 @@
 ## Codebase Patterns
-- Dashboard state uses `UploadResult` interface defined locally in page.tsx (not in types/index.ts)
+- Dashboard state uses `UploadResult` interface defined locally in page.tsx (not in types/index.ts); now uses `agents: string[]` instead of `agentName: string`
 - Build command: `npm run build` in beat-planner/ runs both typecheck and compilation
 - Types in beat-planner/types/index.ts are shared across components and API routes
 - BeatResult is the core domain type — extended with assignedAgent for multi-agent support
@@ -16,4 +16,14 @@ Started: Mon May 11 13:31:25 PST 2026
   - BeatResult in types/index.ts is the right place for assignedAgent — all downstream components import from there
   - DayAssignments type documents the nested shape `{ [agentName]: { [beatId]: day } }` needed for multi-agent scheduling
   - UploadResult interface lives locally in dashboard/page.tsx — will need updating in US-004 when we wire in agents[]
+---
+
+## 2026-05-11 - US-002
+Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
+- What was implemented: Refactored UploadForm to support 1–5 agent name inputs. Added dynamic list with Add Agent / Remove buttons. Upload button disabled until all fields filled and file selected. onSuccess passes `agents: string[]` to parent. Updated dashboard UploadResult type from `agentName: string` to `agents: string[]`; downstream download handlers use `agents[0]` temporarily until US-006 per-agent exports.
+- Files changed: beat-planner/components/UploadForm.tsx, beat-planner/app/dashboard/page.tsx
+- **Learnings for future iterations:**
+  - dev-browser skill is not installed — browser verification was skipped; typecheck + build are the available quality gates
+  - The upload API still receives `agentName: agents[0]` since the route still expects it; this is intentional and will be cleaned up in US-006
+  - UploadResult.agents[] is now the canonical list of agent names throughout the dashboard
 ---
