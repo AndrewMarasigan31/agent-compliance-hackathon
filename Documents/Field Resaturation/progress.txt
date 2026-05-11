@@ -37,3 +37,13 @@ Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
   - Added onContinue prop (not explicitly in AC but required for the button to function) — US-004 will wire this to advance the dashboard step
   - GCU grouping uses reduce + Object.keys().sort() pattern — consistent with how beats are grouped elsewhere
 ---
+
+## 2026-05-11 - US-004
+Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
+- What was implemented: Wired AgentBeatAssignment into the dashboard. Added `beatAssignments: Record<number, string>` and `step: "assign-agents" | "assign-days"` state. After clustering, dashboard shows AgentBeatAssignment. On Continue, beats are updated with `assignedAgent`, dayAssignments initialized, and step advances to "assign-days". BeatMap's onBeatsChange now also clears beatAssignments for removed beats.
+- Files changed: beat-planner/app/dashboard/page.tsx
+- **Learnings for future iterations:**
+  - The `step` state pattern ("assign-agents" | "assign-days") is the clean way to gate workflow stages in the dashboard
+  - When Continue is clicked, use setBeats functional update to stamp assignedAgent onto each beat before advancing
+  - dayAssignments initialization happens at the Continue handler (not at clustering time), since beat IDs might change during BeatMap editing
+---
