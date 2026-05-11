@@ -101,3 +101,14 @@ Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
   - AgentDaySchedule tabs are plain `<button>` elements, queryable by role + name (the agent name text)
   - Beat rows show "Beat N" text, so `screen.getByText("Beat 1")` is sufficient for presence assertions
 ---
+
+## 2026-05-11 - US-010
+Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
+- What was implemented: 5 tests for /api/kml (KML contains beats for given agent, KML title includes agentName+day, filename is agentName-day.kml) and /api/csv (CSV contains rows for given agent+day, filename is agentName-day.csv). Tests call the POST handlers directly by importing from the route files.
+- Files changed: beat-planner/__tests__/api-routes.test.ts (new)
+- **Learnings for future iterations:**
+  - Use `@jest-environment node` docblock for API route tests — jsdom env breaks NextRequest/NextResponse
+  - Import POST handler directly: `import { POST as kmlPOST } from "@/app/api/kml/route"` then call it with a new NextRequest
+  - Build NextRequest as `new NextRequest("http://localhost/api/kml", { method: "POST", body: JSON.stringify(body), headers: {...} })`
+  - `res.headers.get("Content-Disposition")` to verify filename in Content-Disposition header
+---
