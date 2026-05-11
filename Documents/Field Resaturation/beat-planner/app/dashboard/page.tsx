@@ -71,12 +71,22 @@ export default function DashboardPage() {
     new Set(Object.values(flatDayAssignments).map((v) => v.day))
   ).sort((a, b) => days.indexOf(a) - days.indexOf(b));
 
-  async function buildBeatsPayload(agentName: string, day: string) {
-    if (!beats || !uploadResult) return null;
+  function getDayBeats(agentName: string, day: string) {
+    if (!beats) return [];
     const agentDays = dayAssignments[agentName] ?? {};
-    const dayBeats = beats.filter(
+    return beats.filter(
       (b) => b.assignedAgent === agentName && agentDays[b.beatId] === day
     );
+  }
+
+  function allRoutedForDay(agentName: string, day: string) {
+    const dayBeats = getDayBeats(agentName, day);
+    return dayBeats.length > 0 && dayBeats.every((b) => !!routedStores[b.beatId]);
+  }
+
+  async function buildBeatsPayload(agentName: string, day: string) {
+    if (!beats || !uploadResult) return null;
+    const dayBeats = getDayBeats(agentName, day);
     return dayBeats.map((b) => ({
       ...b,
       ...(routedStores[b.beatId] ? { orderedStores: routedStores[b.beatId] } : {}),
@@ -209,22 +219,35 @@ export default function DashboardPage() {
                     <div key={agent} className="mb-6">
                       <h4 className="text-sm font-semibold text-gray-700 mb-2">{agent}</h4>
                       <div className="flex flex-wrap gap-3">
-                        {agentAssignedDays.map((day) => (
-                          <div key={day} className="flex gap-2">
-                            <button
-                              onClick={() => handleDownload(agent, day)}
-                              className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 text-sm"
-                            >
-                              {day} KML
-                            </button>
-                            <button
-                              onClick={() => handleDownloadCsv(agent, day)}
-                              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 text-sm"
-                            >
-                              {day} CSV
-                            </button>
+                        {agentAssignedDays.map((day) => {
+                          const routed = allRoutedForDay(agent, day);
+                          const unroutedCount = getDayBeats(agent, day).filter((b) => !routedStores[b.beatId]).length;
+                          return (
+                          <div key={day} className="flex flex-col gap-1">
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleDownload(agent, day)}
+                                disabled={!routed}
+                                title={routed ? undefined : `${unroutedCount} beat(s) not yet routed`}
+                                className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                              >
+                                {day} KML
+                              </button>
+                              <button
+                                onClick={() => handleDownloadCsv(agent, day)}
+                                disabled={!routed}
+                                title={routed ? undefined : `${unroutedCount} beat(s) not yet routed`}
+                                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                              >
+                                {day} CSV
+                              </button>
+                            </div>
+                            {!routed && (
+                              <p className="text-xs text-amber-600">{unroutedCount} beat(s) need routing</p>
+                            )}
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   );
