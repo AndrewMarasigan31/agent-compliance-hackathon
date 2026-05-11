@@ -79,3 +79,14 @@ Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
   - Use `/** @jest-environment node */` docblock at the top of API route test files to override to node env
   - `next/jest` transformer handles Next.js aliases (@/) and SWC transform automatically — no babel config needed
 ---
+
+## 2026-05-11 - US-008
+Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
+- What was implemented: 7 tests for AgentBeatAssignment covering: GCU grouping, dropdown options matching agents prop, progress indicator (initial + updates), Continue button disabled/enabled state, and onAssignmentChange callback arguments.
+- Files changed: beat-planner/__tests__/AgentBeatAssignment.test.tsx (new)
+- **Learnings for future iterations:**
+  - Use `screen.getAllByRole("combobox")` to get all select elements; order matches DOM order (by GCU sort + beat order within GCU)
+  - `fireEvent.change(select, { target: { value: "Agent" } })` is sufficient for select changes — no need for userEvent for these tests
+  - The `<>` fragment wrapping GCU rows in the component causes a React key warning (console.error) but does not fail tests; tests still pass 7/7
+  - Run tests with `npx jest <path>` directly rather than `npm test -- --testPathPattern` (the latter uses deprecated option syntax in this Jest version)
+---
