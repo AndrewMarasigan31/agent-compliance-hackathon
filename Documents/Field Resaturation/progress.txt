@@ -27,3 +27,13 @@ Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
   - The upload API still receives `agentName: agents[0]` since the route still expects it; this is intentional and will be cleaned up in US-006
   - UploadResult.agents[] is now the canonical list of agent names throughout the dashboard
 ---
+
+## 2026-05-11 - US-003
+Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
+- What was implemented: Created AgentBeatAssignment component. Renders beats grouped under GCU header rows (sorted alphabetically). Each beat row shows Beat ID, store count, and agent dropdown. Progress indicator at top shows "X of Y beats assigned". Continue button disabled until all beats assigned. onAssignmentChange fires immediately on dropdown change.
+- Files changed: beat-planner/components/AgentBeatAssignment.tsx
+- **Learnings for future iterations:**
+  - Component tracks assignments in local state; also fires onAssignmentChange to parent for dashboard state sync
+  - Added onContinue prop (not explicitly in AC but required for the button to function) — US-004 will wire this to advance the dashboard step
+  - GCU grouping uses reduce + Object.keys().sort() pattern — consistent with how beats are grouped elsewhere
+---
