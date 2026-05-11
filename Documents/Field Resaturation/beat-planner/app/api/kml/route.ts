@@ -100,7 +100,7 @@ ${folders}
   </Document>
 </kml>`;
 
-  const filename = `route-${agentName}-${day.toLowerCase()}.kml`;
+  const filename = `${agentName}-${day}.kml`;
 
   return new NextResponse(kml, {
     headers: {
