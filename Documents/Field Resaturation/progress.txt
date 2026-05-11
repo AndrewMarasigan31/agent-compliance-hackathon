@@ -1,4 +1,5 @@
 ## Codebase Patterns
+- dayAssignments state shape is `Record<string, Record<number, string>>` (nested: agentName → beatId → day); use Object.entries to flatten for cross-agent logic
 - Dashboard state uses `UploadResult` interface defined locally in page.tsx (not in types/index.ts); now uses `agents: string[]` instead of `agentName: string`
 - Build command: `npm run build` in beat-planner/ runs both typecheck and compilation
 - Types in beat-planner/types/index.ts are shared across components and API routes
@@ -46,4 +47,14 @@ Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
   - The `step` state pattern ("assign-agents" | "assign-days") is the clean way to gate workflow stages in the dashboard
   - When Continue is clicked, use setBeats functional update to stamp assignedAgent onto each beat before advancing
   - dayAssignments initialization happens at the Continue handler (not at clustering time), since beat IDs might change during BeatMap editing
+---
+
+## 2026-05-11 - US-005
+Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
+- What was implemented: Created AgentDaySchedule component with agent tabs. Tab buttons switch active agent; table shows only beats assigned to active agent. Day selector fires onDayChange(agentName, beatId, day). Dashboard dayAssignments state changed from Record<number, string> to Record<string, Record<number, string>>. Download section updated to show per-agent per-day buttons (preview of US-006 layout). onContinue handler initializes nested dayAssignments per agent.
+- Files changed: beat-planner/components/AgentDaySchedule.tsx (new), beat-planner/app/dashboard/page.tsx
+- **Learnings for future iterations:**
+  - dayAssignments is now nested: { [agentName]: { [beatId]: day } } — flatten with Object.entries when you need a cross-agent view
+  - AgentDaySchedule filters beats by beat.assignedAgent === activeAgent, so assignedAgent must be set on beats before this step
+  - Download section already has per-agent structure ready; US-006 just needs to move to API-level filtering
 ---
