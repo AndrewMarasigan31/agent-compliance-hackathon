@@ -7,6 +7,16 @@ interface RouteStore {
   long: number;
 }
 
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.json();
   const stores: RouteStore[] = body.stores || [];
@@ -19,45 +29,26 @@ export async function POST(req: NextRequest) {
   const centroidLat = stores.reduce((sum, s) => sum + s.lat, 0) / stores.length;
   const centroidLng = stores.reduce((sum, s) => sum + s.long, 0) / stores.length;
 
-  // Find starting store closest to centroid (Euclidean distance)
+  // Find starting store closest to centroid
   let startIndex = 0;
   let minDist = Infinity;
   for (let i = 0; i < stores.length; i++) {
-    const dLat = stores[i].lat - centroidLat;
-    const dLng = stores[i].long - centroidLng;
-    const dist = Math.sqrt(dLat * dLat + dLng * dLng);
-    if (dist < minDist) {
-      minDist = dist;
+    const d = haversineKm(stores[i].lat, stores[i].long, centroidLat, centroidLng);
+    if (d < minDist) {
+      minDist = d;
       startIndex = i;
     }
   }
 
-  // Build OSRM coords: longitude first
-  const coords = stores.map((s) => `${s.long},${s.lat}`).join(";");
-  const osrmUrl = `https://router.project-osrm.org/table/v1/driving/${coords}`;
+  // Build Haversine distance matrix
+  const n = stores.length;
+  const matrix: number[][] = Array.from({ length: n }, (_, i) =>
+    Array.from({ length: n }, (_, j) =>
+      haversineKm(stores[i].lat, stores[i].long, stores[j].lat, stores[j].long)
+    )
+  );
 
-  let durations: number[][];
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-    const response = await fetch(osrmUrl, { signal: controller.signal });
-    clearTimeout(timeout);
-
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: `OSRM returned status ${response.status}` },
-        { status: 500 }
-      );
-    }
-
-    const data = await response.json();
-    durations = data.durations;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json({ error: `OSRM call failed: ${message}` }, { status: 500 });
-  }
-
-  const order = nearestNeighborTSP(durations, startIndex);
+  const order = nearestNeighborTSP(matrix, startIndex);
   const orderedStores = order.map((i) => stores[i]);
 
   return NextResponse.json({ orderedStores });

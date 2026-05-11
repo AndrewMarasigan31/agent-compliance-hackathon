@@ -35,14 +35,11 @@ export default function BeatMap({ beats, onBeatsChange, onRoutesChange }: BeatMa
   const [selectedGcu, setSelectedGcu] = useState("all");
   const [lassoSelection, setLassoSelection] = useState<LassoSelection | null>(null);
   const [targetBeatId, setTargetBeatId] = useState<number | "">("");
-  const [warning, setWarning] = useState("");
 
   const [routeStatuses, setRouteStatuses] = useState<Record<number, RouteStatus>>({});
   const [routedStores, setRoutedStores] = useState<Record<number, BeatStore[]>>({});
-
-  useEffect(() => {
-    onRoutesChange?.(routedStores);
-  }, [routedStores, onRoutesChange]);
+  const routedStoresRef = useRef<Record<number, BeatStore[]>>({});
+  routedStoresRef.current = routedStores;
 
   const gcus = Array.from(new Set(beats.map((b) => b.gcu))).sort();
   const visibleBeats = selectedGcu === "all" ? beats : beats.filter((b) => b.gcu === selectedGcu);
@@ -78,7 +75,9 @@ export default function BeatMap({ beats, onBeatsChange, onRoutesChange }: BeatMa
       });
       if (!res.ok) throw new Error("Route failed");
       const data = await res.json();
-      setRoutedStores((prev) => ({ ...prev, [beatId]: data.orderedStores }));
+      const next = { ...routedStoresRef.current, [beatId]: data.orderedStores };
+      setRoutedStores(next);
+      onRoutesChange?.(next);
       setRouteStatuses((prev) => ({ ...prev, [beatId]: "routed" }));
     } catch {
       setRouteStatuses((prev) => ({ ...prev, [beatId]: "error" }));
@@ -153,7 +152,6 @@ export default function BeatMap({ beats, onBeatsChange, onRoutesChange }: BeatMa
         if (selected.length === 0) return;
         setLassoSelection({ stores: selected });
         setTargetBeatId("");
-        setWarning("");
       });
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -235,18 +233,6 @@ export default function BeatMap({ beats, onBeatsChange, onRoutesChange }: BeatMa
     const sourceBeatIds = Array.from(new Set(lassoSelection.stores.map((s) => s.fromBeatId)));
     const targetId = Number(targetBeatId);
 
-    // Warn if any source beat would be emptied
-    if (!warning) {
-      const wouldEmpty = sourceBeatIds.filter((id) => {
-        const beat = beats.find((b) => b.beatId === id);
-        return beat && beat.stores.filter((s) => !selectedUsernames.has(s.username)).length === 0;
-      });
-      if (wouldEmpty.length > 0) {
-        setWarning(`Beat${wouldEmpty.length > 1 ? "s" : ""} ${wouldEmpty.join(", ")} will be empty and removed. Continue?`);
-        return;
-      }
-    }
-
     const sourceBeatIdSet = new Set(sourceBeatIds);
     const updated: BeatResult[] = beats
       .map((beat) => {
@@ -261,8 +247,7 @@ export default function BeatMap({ beats, onBeatsChange, onRoutesChange }: BeatMa
           return { ...beat, stores: remaining, storeCount: remaining.length };
         }
         return beat;
-      })
-      .filter((b) => b.stores.length > 0);
+      });
 
     // Invalidate routes for all affected beats (source + target)
     const affectedIds = [...sourceBeatIds, targetId];
@@ -271,15 +256,13 @@ export default function BeatMap({ beats, onBeatsChange, onRoutesChange }: BeatMa
       for (const id of affectedIds) delete next[id];
       return next;
     });
-    setRoutedStores((prev) => {
-      const next = { ...prev };
-      for (const id of affectedIds) delete next[id];
-      return next;
-    });
+    const nextRoutedStores = { ...routedStoresRef.current };
+    for (const id of affectedIds) delete nextRoutedStores[id];
+    setRoutedStores(nextRoutedStores);
+    onRoutesChange?.(nextRoutedStores);
 
     onBeatsChange(updated);
     setLassoSelection(null);
-    setWarning("");
   }
 
   return (
@@ -303,11 +286,11 @@ export default function BeatMap({ beats, onBeatsChange, onRoutesChange }: BeatMa
 
       <div className="flex gap-4">
         <div className="flex-1 min-w-0">
-          <div ref={mapRef} style={{ height: 480 }} className="rounded-lg border border-gray-200" />
+          <div ref={mapRef} style={{ height: "calc(100vh - 220px)", minHeight: 500 }} className="rounded-lg border border-gray-200" />
         </div>
 
         {/* Beat list panel */}
-        <div className="w-72 flex-shrink-0 border border-gray-200 rounded-lg bg-white overflow-hidden flex flex-col">
+        <div className="w-72 flex-shrink-0 border border-gray-200 rounded-lg bg-white overflow-hidden flex flex-col" style={{ height: "calc(100vh - 220px)", minHeight: 500 }}>
           <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
             <h3 className="text-sm font-semibold text-gray-700">Beat Routes</h3>
           </div>
@@ -367,15 +350,10 @@ export default function BeatMap({ beats, onBeatsChange, onRoutesChange }: BeatMa
           <p className="text-sm font-medium text-indigo-800 mb-3">
             {lassoSelection.stores.length} store{lassoSelection.stores.length !== 1 ? "s" : ""} selected — move to beat:
           </p>
-          {warning && (
-            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-3">
-              ⚠ {warning}
-            </p>
-          )}
           <div className="flex items-center gap-3">
             <select
               value={targetBeatId}
-              onChange={(e) => { setTargetBeatId(Number(e.target.value)); setWarning(""); }}
+              onChange={(e) => { setTargetBeatId(Number(e.target.value)); }}
               className="border border-gray-300 rounded px-2 py-1 text-sm"
             >
               <option value="">Select target beat…</option>
@@ -392,10 +370,10 @@ export default function BeatMap({ beats, onBeatsChange, onRoutesChange }: BeatMa
               disabled={targetBeatId === ""}
               className="bg-indigo-600 text-white px-4 py-1.5 rounded text-sm hover:bg-indigo-700 disabled:opacity-40"
             >
-              {warning ? "Confirm" : "Move"}
+              Move
             </button>
             <button
-              onClick={() => { setLassoSelection(null); setWarning(""); }}
+              onClick={() => { setLassoSelection(null); }}
               className="text-sm text-gray-500 hover:text-gray-700"
             >
               Cancel

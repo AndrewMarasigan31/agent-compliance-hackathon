@@ -14,8 +14,18 @@ const REQUIRED_COLUMNS = [
 
 const EXCLUDED_REASONS = [
   "Permanently Closed",
+  "Temporarily Closed",
   "Duplicate Account",
+  "Masikip ang Daan",
   "Hindi mahanap yung tindahan",
+];
+
+const ACTIVE_ORDER_STATUSES = [
+  "pending",
+  "packed",
+  "processing",
+  "dispatched",
+  "ready_to_redispatch",
 ];
 
 export async function POST(req: NextRequest) {
@@ -52,7 +62,26 @@ export async function POST(req: NextRequest) {
 
   for (const row of parsed.data) {
     const rejectionReason = row["bakit hindi umorder si customer?"] || "";
+
     if (EXCLUDED_REASONS.includes(rejectionReason)) {
+      excludedCount++;
+      continue;
+    }
+
+    const orderStatus = (row["latest_order_status"] || "").trim().toLowerCase();
+    if (ACTIVE_ORDER_STATUSES.includes(orderStatus)) {
+      excludedCount++;
+      continue;
+    }
+
+    // Only include stores with a last_delivered_date in 2025 or later
+    const lastDelivered = row["last_delivered_date"]?.trim() || "";
+    if (!lastDelivered) {
+      excludedCount++;
+      continue;
+    }
+    const deliveryYear = new Date(lastDelivered).getFullYear();
+    if (isNaN(deliveryYear) || deliveryYear < 2025) {
       excludedCount++;
       continue;
     }
@@ -63,8 +92,9 @@ export async function POST(req: NextRequest) {
       lat: parseFloat(row["lat"]) || 0,
       long: parseFloat(row["long"]) || 0,
       gcu: row["gcu"] || "",
-      last_delivered_date: row["last_delivered_date"] || "",
+      last_delivered_date: lastDelivered,
       rejectionReason,
+      bucket: row["bucket"] || "",
     });
   }
 

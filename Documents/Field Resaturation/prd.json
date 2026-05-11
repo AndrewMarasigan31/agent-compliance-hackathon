@@ -1,107 +1,177 @@
 {
   "project": "Field Agent Beat Planner",
-  "branchName": "ralph/recommended-route-per-beat",
-  "description": "Add a recommended visit route per beat using OSRM road-network routing (motorcycle profile). Supervisors trigger route generation from a beat list panel; routes are shown as numbered markers and a polyline on the map. Lasso reassignments clear stale routes. KML exports store stops in routed order.",
+  "branchName": "ralph/multi-agent-assignment",
+  "description": "Extend the Beat Planner from single-agent to multi-agent. A supervisor enters 2-5 agent names at upload, assigns each beat to an agent via a GCU-grouped table, schedules each agent's beats across the week, and exports per-agent per-day KML/CSV files.",
   "userStories": [
     {
       "id": "US-001",
-      "title": "Nearest neighbor TSP algorithm",
-      "description": "As a developer, I need a nearest neighbor TSP function that takes a distance matrix and a starting index and returns the optimal store visit order so that beats can be routed efficiently.",
+      "title": "Update TypeScript types for multi-agent support",
+      "description": "As a developer, I need the shared types to support multiple agents so that all downstream components and API routes can be built on a consistent data model.",
       "acceptanceCriteria": [
-        "lib/routing.ts exports function: nearestNeighborTSP(matrix: number[][], startIndex: number): number[]",
-        "Returns an ordered array of store indices of length N (one entry per store)",
-        "Every store index appears exactly once — no skips, no duplicates",
-        "Greedy nearest neighbor: at each step, picks the closest unvisited store using the matrix row of the current store",
-        "Works correctly for N=1 (returns [0]) and N=2 edge cases",
+        "types/index.ts: add `agents: string[]` — replaces `agentName: string` in dashboard state shape",
+        "types/index.ts: add `assignedAgent?: string` field to BeatResult interface",
+        "types/index.ts: document that dayAssignments shape is `{ [agentName: string]: { [beatId: number]: string } }` (comment or type alias)",
+        "No runtime behaviour changes — types only",
         "Typecheck passes"
       ],
       "priority": 1,
-      "passes": true,
+      "passes": false,
       "notes": ""
     },
     {
       "id": "US-002",
-      "title": "OSRM route API endpoint",
-      "description": "As a developer, I need a POST /api/route endpoint that calls the OSRM Table API to get road-network distances and returns an ordered store list so the client can render the route.",
+      "title": "Dynamic agent entry in UploadForm",
+      "description": "As a supervisor, I want to enter multiple agent names when uploading a CSV so that I can plan my full team's week in one session.",
       "acceptanceCriteria": [
-        "POST /api/route accepts JSON: { stores: Array<{ store_name: string, lat: number, long: number }> }",
-        "Computes beat centroid as mean of all store lat/lng values",
-        "Identifies starting store as the store with shortest Euclidean distance to the centroid",
-        "Calls OSRM Table API: GET https://router.project-osrm.org/table/v1/driving/{coords} where coords is 'lng,lat;lng,lat;...' (longitude first)",
-        "Applies nearestNeighborTSP() from lib/routing.ts using the OSRM durations matrix and the starting store index",
-        "Returns JSON: { orderedStores: Store[] } — stores sorted in visit sequence",
-        "Returns 500 with { error: string } if OSRM call fails (non-200, network error, or timeout)",
-        "Typecheck passes"
+        "UploadForm renders a dynamic list of agent name inputs (one shown by default)",
+        "'+ Add Agent' button appends a new empty text input, up to a maximum of 5",
+        "Each agent name input has a remove button (hidden when only one field remains)",
+        "Upload button is disabled until every agent name field is non-empty and the CSV file is selected",
+        "On successful upload, the component passes `agents: string[]` (array of entered names) to the parent dashboard via the existing onUpload callback",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 2,
-      "passes": true,
+      "passes": false,
       "notes": ""
     },
     {
       "id": "US-003",
-      "title": "Beat list panel UI",
-      "description": "As a supervisor, I want a beat list panel on the map view so I can see all beats and trigger route generation per beat.",
+      "title": "AgentBeatAssignment component",
+      "description": "As a supervisor, I want to assign each beat to an agent via a GCU-grouped table so that I can quickly allocate an entire GCU's beats to one person.",
       "acceptanceCriteria": [
-        "A scrollable panel is visible alongside the Leaflet map on the dashboard, listing all beats",
-        "Each beat row shows: colored swatch matching beat color, Beat ID, GCU, store count, route status badge, and a 'Generate Route' button",
-        "Route status badge shows one of three states: 'Not routed' (gray), 'Routed ✓' (green), 'Error' (red)",
-        "When 'Generate Route' is clicked, that row shows a loading spinner and the button is disabled",
-        "Panel list updates automatically when beats change (e.g. after lasso reassignment)",
+        "New component `components/AgentBeatAssignment.tsx` is created",
+        "Accepts props: `beats: BeatResult[]`, `agents: string[]`, `onAssignmentChange: (beatId: number, agentName: string) => void`",
+        "Renders beats grouped under GCU header rows (sorted alphabetically by GCU name)",
+        "Each beat row shows: Beat ID, store count, and a dropdown whose options are the `agents` array (plus an empty default option '-- Assign agent --')",
+        "A progress indicator at the top displays 'X of Y beats assigned'",
+        "A 'Continue' button is disabled while any beat is unassigned; enabled when all beats have an agent selected",
+        "Selecting a dropdown fires `onAssignmentChange(beatId, agentName)` immediately",
         "Typecheck passes",
         "Verify in browser using dev-browser skill"
       ],
       "priority": 3,
-      "passes": true,
+      "passes": false,
       "notes": ""
     },
     {
       "id": "US-004",
-      "title": "Route visualization on map",
-      "description": "As a supervisor, I want to see routed beats drawn on the map with numbered markers and a connecting polyline so I can visually verify the route makes geographic sense.",
+      "title": "Wire AgentBeatAssignment into dashboard",
+      "description": "As a supervisor, I want the beat assignment step to appear automatically after clustering so that the workflow guides me to assign agents before scheduling days.",
       "acceptanceCriteria": [
-        "Clicking 'Generate Route' on a beat row calls POST /api/route with that beat's stores",
-        "On success: stores in the routed beat are displayed as numbered DivIcon markers (1, 2, 3...) colored to match the beat color, replacing the default circle markers for that beat",
-        "On success: a Leaflet Polyline is drawn connecting stores in visit sequence, colored to match the beat color",
-        "On success: beat row status updates to 'Routed ✓'",
-        "On error: beat row status updates to 'Error' with message 'Route failed — try again'; no markers or polyline drawn",
-        "All routed beats show their routes simultaneously on the map",
-        "Unrouted beats continue to show default circle markers",
+        "Dashboard state: `agentName: string` replaced by `agents: string[]` (received from UploadForm)",
+        "Dashboard state: `beatAssignments: Record<number, string>` tracks which agent each beat is assigned to",
+        "After clustering completes, dashboard renders `AgentBeatAssignment` instead of the day-assignment table",
+        "When the user clicks 'Continue' in AgentBeatAssignment, dashboard advances to the day-assignment step and stores beat assignments in state",
+        "Each beat's `assignedAgent` is set in the beats array before passing it downstream",
         "Typecheck passes",
         "Verify in browser using dev-browser skill"
       ],
       "priority": 4,
-      "passes": true,
+      "passes": false,
       "notes": ""
     },
     {
       "id": "US-005",
-      "title": "Lasso tool route invalidation",
-      "description": "As a supervisor, I want routes to be cleared when I reassign stores via the lasso tool so I never review a stale route.",
+      "title": "AgentDaySchedule component with tabs",
+      "description": "As a supervisor, I want to schedule each agent's beats on separate tabs so that each agent's weekly plan is independent and easy to manage.",
       "acceptanceCriteria": [
-        "When stores are reassigned via the lasso tool, the route is cleared for both the source beat and the target beat",
-        "Both affected beats revert to 'Not routed' status in the beat list panel",
-        "Numbered markers and polyline for both affected beats are removed from the map; default circle markers are restored",
-        "Other beats' routes are unaffected by the reassignment",
+        "New component `components/AgentDaySchedule.tsx` is created",
+        "Accepts props: `agents: string[]`, `beats: BeatResult[]`, `dayAssignments: Record<string, Record<number, string>>`, `onDayChange: (agentName: string, beatId: number, day: string) => void`",
+        "Renders one tab button per agent across the top",
+        "Active tab shows only the beats assigned to that agent (filtered by `beat.assignedAgent`)",
+        "Each beat row has the existing Mon–Sat day selector",
+        "Changing a day selector fires `onDayChange(agentName, beatId, day)`",
+        "Dashboard replaces the existing flat day-assignment table with `AgentDaySchedule`, passing `dayAssignments` as `{ [agentName]: { [beatId]: day } }`",
         "Typecheck passes",
         "Verify in browser using dev-browser skill"
       ],
       "priority": 5,
-      "passes": true,
+      "passes": false,
       "notes": ""
     },
     {
       "id": "US-006",
-      "title": "KML export in routed order",
-      "description": "As a supervisor, I want the KML export to include stores in routed order so field agents follow the correct visit sequence in Google Maps.",
+      "title": "Per-agent exports",
+      "description": "As a supervisor, I want to download KML and CSV files per agent per day so that each agent can open their own daily route in Google Maps.",
       "acceptanceCriteria": [
-        "When a beat has been routed, its Placemarks in the KML are written in visit sequence order (first store visited = first Placemark)",
-        "When a beat has NOT been routed, its stores are exported in the existing default order (no regression)",
-        "The routed order is passed from dashboard state to POST /api/kml — update the request payload to include orderedStores per beat where available",
-        "No other KML structure changes — ExtendedData fields, Style, colors, and folder structure remain identical",
-        "Typecheck passes"
+        "Dashboard export section renders one block per agent (agent name as heading)",
+        "Each agent block shows download buttons only for days that agent has at least one beat assigned",
+        "Each download button is labelled with the day (e.g. 'Monday KML', 'Monday CSV')",
+        "POST /api/kml and POST /api/csv accept `agentName: string` in the request body and filter beats to only that agent's assigned beats for the given day",
+        "KML filename is `[agentName]-[day].kml`; CSV filename is `[agentName]-[day].csv`",
+        "Existing KML/CSV structure and field content is unchanged — only filtered scope",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 6,
-      "passes": true,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "Test infrastructure setup",
+      "description": "As a developer, I need Jest and React Testing Library configured so that component and API route tests can be written and run.",
+      "acceptanceCriteria": [
+        "Install jest, jest-environment-jsdom, @testing-library/react, @testing-library/user-event, @types/jest as devDependencies",
+        "jest.config.ts (or jest.config.js) configured for Next.js with jsdom environment for component tests and node environment for API route tests",
+        "`npm test` runs the test suite and exits 0 with no test files yet (or a placeholder passing test)",
+        "Typecheck passes"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "Tests: AgentBeatAssignment component",
+      "description": "As a developer, I want tests for AgentBeatAssignment so that beat assignment logic is verified through its public interface.",
+      "acceptanceCriteria": [
+        "Beats are rendered grouped under correct GCU header labels",
+        "Dropdown options match the `agents` prop exactly",
+        "Progress indicator starts at '0 of N beats assigned' and updates as dropdowns are changed",
+        "'Continue' button is disabled when any beat is unassigned",
+        "'Continue' button is enabled when all beats have an agent selected",
+        "`onAssignmentChange` is called with the correct `(beatId, agentName)` arguments when a dropdown changes",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "Tests: UploadForm and AgentDaySchedule components",
+      "description": "As a developer, I want tests for UploadForm and AgentDaySchedule so that agent entry and per-agent scheduling are verified through their public interfaces.",
+      "acceptanceCriteria": [
+        "UploadForm: '+ Add Agent' button appends a new input field",
+        "UploadForm: upload button is disabled when any name field is empty",
+        "UploadForm: upload button is enabled when all name fields are filled and a file is selected",
+        "AgentDaySchedule: renders one tab per agent",
+        "AgentDaySchedule: active tab shows only beats assigned to that agent",
+        "AgentDaySchedule: switching tabs updates the visible beat list",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "Tests: API routes /api/kml and /api/csv",
+      "description": "As a developer, I want tests for the KML and CSV export API routes so that per-agent filtering is verified at the API boundary.",
+      "acceptanceCriteria": [
+        "POST /api/kml: KML output contains only beats whose `assignedAgent` matches the given `agentName`",
+        "POST /api/kml: KML output contains only beats assigned to the given `day`",
+        "POST /api/csv: CSV output contains only rows for beats matching the given agent and day",
+        "POST /api/csv: CSV filename header is `[agentName]-[day].csv`",
+        "Tests pass",
+        "Typecheck passes"
+      ],
+      "priority": 10,
+      "passes": false,
       "notes": ""
     }
   ]

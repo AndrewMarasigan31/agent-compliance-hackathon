@@ -6,6 +6,7 @@ export interface Store {
   gcu: string;
   last_delivered_date: string;
   rejectionReason: string;
+  bucket: string;
 }
 
 export interface BeatStore extends Store {
@@ -24,4 +25,10 @@ export interface BeatResult {
   color: string;
   storeCount: number;
   stores: BeatStore[];
+  assignedAgent?: string;
 }
+
+// Dashboard state shape for multi-agent support:
+// agents: string[]  — list of agent names entered at upload (replaces single agentName)
+// dayAssignments: DayAssignments — per-agent, per-beat day mapping
+export type DayAssignments = { [agentName: string]: { [beatId: number]: string } };

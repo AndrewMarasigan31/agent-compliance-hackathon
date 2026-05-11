@@ -36,6 +36,9 @@ export async function POST(req: NextRequest) {
       <IconStyle>
         <Icon><href>http://maps.google.com/mapfiles/ms/micons/${icon}.png</href></Icon>
       </IconStyle>
+      <LineStyle>
+        <width>3</width>
+      </LineStyle>
     </Style>`;
     })
     .join("\n  ");
@@ -48,10 +51,13 @@ export async function POST(req: NextRequest) {
           (store) => `    <Placemark>
         <name>${escapeXml(store.store_name)}</name>
         <styleUrl>#beat-${beat.beatId}</styleUrl>
+        <description>${escapeXml(store.bucket)}</description>
         <ExtendedData>
           <Data name="Beat"><value>${escapeXml(String(beat.beatId))}</value></Data>
+          <Data name="Username"><value>${escapeXml(store.username)}</value></Data>
           <Data name="Last Order"><value>${escapeXml(store.last_delivered_date)}</value></Data>
           <Data name="Days Dormant"><value>${escapeXml(String(store.daysDormant ?? ""))}</value></Data>
+          <Data name="Tag"><value>${escapeXml(store.bucket)}</value></Data>
           <Data name="Rejection Reason"><value>${escapeXml(store.rejectionReason)}</value></Data>
         </ExtendedData>
         <Point><coordinates>${store.long},${store.lat},0</coordinates></Point>
@@ -59,8 +65,19 @@ export async function POST(req: NextRequest) {
         )
         .join("\n");
 
+      const lineCoords = storesInOrder.map((s) => `${s.long},${s.lat},0`).join(" ");
+      const routeLine = `    <Placemark>
+      <name>Route - Beat ${beat.beatId}</name>
+      <styleUrl>#beat-${beat.beatId}</styleUrl>
+      <LineString>
+        <tessellate>1</tessellate>
+        <coordinates>${lineCoords}</coordinates>
+      </LineString>
+    </Placemark>`;
+
       return `  <Folder>
     <name>Beat ${beat.beatId} (${escapeXml(beat.gcu)})</name>
+${routeLine}
 ${placemarks}
   </Folder>`;
     })
@@ -72,8 +89,10 @@ ${placemarks}
     <name>${escapeXml(agentName)} - ${escapeXml(day)}</name>
     <Schema name="Store" id="Store">
       <SimpleField name="Beat" type="string"/>
+      <SimpleField name="Username" type="string"/>
       <SimpleField name="Last Order" type="string"/>
       <SimpleField name="Days Dormant" type="string"/>
+      <SimpleField name="Tag" type="string"/>
       <SimpleField name="Rejection Reason" type="string"/>
     </Schema>
   ${styles}

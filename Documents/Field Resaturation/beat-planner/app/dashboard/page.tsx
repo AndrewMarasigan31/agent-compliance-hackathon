@@ -56,13 +56,18 @@ export default function DashboardPage() {
     new Set(Object.values(dayAssignments).filter((d) => d !== "Unassigned"))
   ).sort((a, b) => days.indexOf(a) - days.indexOf(b));
 
-  async function handleDownload(day: string) {
-    if (!beats || !uploadResult) return;
+  async function buildBeatsPayload(day: string) {
+    if (!beats || !uploadResult) return null;
     const dayBeats = beats.filter((b) => dayAssignments[b.beatId] === day);
-    const beatsPayload = dayBeats.map((b) => ({
+    return dayBeats.map((b) => ({
       ...b,
       ...(routedStores[b.beatId] ? { orderedStores: routedStores[b.beatId] } : {}),
     }));
+  }
+
+  async function handleDownload(day: string) {
+    const beatsPayload = await buildBeatsPayload(day);
+    if (!beatsPayload || !uploadResult) return;
     const res = await fetch("/api/kml", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -74,6 +79,24 @@ export default function DashboardPage() {
     const a = document.createElement("a");
     a.href = url;
     a.download = `route-${uploadResult.agentName}-${day.toLowerCase()}.kml`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function handleDownloadCsv(day: string) {
+    const beatsPayload = await buildBeatsPayload(day);
+    if (!beatsPayload || !uploadResult) return;
+    const res = await fetch("/api/csv", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agentName: uploadResult.agentName, day, beats: beatsPayload }),
+    });
+    if (!res.ok) return;
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `route-${uploadResult.agentName}-${day.toLowerCase()}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -169,16 +192,23 @@ export default function DashboardPage() {
             {/* Download section */}
             {assignedDays.length > 0 && (
               <div className="mt-8">
-                <h3 className="text-lg font-semibold mb-3">Download KML by Day</h3>
+                <h3 className="text-lg font-semibold mb-3">Download by Day</h3>
                 <div className="flex flex-wrap gap-3">
                   {assignedDays.map((day) => (
-                    <button
-                      key={day}
-                      onClick={() => handleDownload(day)}
-                      className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 text-sm"
-                    >
-                      Download {day}
-                    </button>
+                    <div key={day} className="flex gap-2">
+                      <button
+                        onClick={() => handleDownload(day)}
+                        className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 text-sm"
+                      >
+                        {day} KML
+                      </button>
+                      <button
+                        onClick={() => handleDownloadCsv(day)}
+                        className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 text-sm"
+                      >
+                        {day} CSV
+                      </button>
+                    </div>
                   ))}
                 </div>
               </div>
