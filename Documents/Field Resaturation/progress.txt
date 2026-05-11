@@ -1,5 +1,7 @@
 ## Codebase Patterns
 - dayAssignments state shape is `Record<string, Record<number, string>>` (nested: agentName → beatId → day); use Object.entries to flatten for cross-agent logic
+- Jest config option for running setup files after test env is `setupFilesAfterEnv` (not setupFilesAfterFramework or setupFilesAfterEach)
+- Tests live in beat-planner/__tests__/ (component tests use jsdom env; API route tests use node env — configure per-test with @jest-environment docblock)
 - Dashboard state uses `UploadResult` interface defined locally in page.tsx (not in types/index.ts); now uses `agents: string[]` instead of `agentName: string`
 - Build command: `npm run build` in beat-planner/ runs both typecheck and compilation
 - Types in beat-planner/types/index.ts are shared across components and API routes
@@ -66,4 +68,14 @@ Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
 - **Learnings for future iterations:**
   - The filename in Content-Disposition header must match the AC format exactly — browser a.download attribute overrides it client-side, but the API header should also be correct
   - Client-side pre-filtering in buildBeatsPayload means the API only receives the relevant agent+day beats; no server-side filtering needed in the route handlers
+---
+
+## 2026-05-11 - US-007
+Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
+- What was implemented: Installed jest, jest-environment-jsdom, @testing-library/react, @testing-library/user-event, @types/jest, @testing-library/jest-dom as devDependencies. Created jest.config.ts using next/jest with jsdom environment and setupFilesAfterEnv pointing to jest.setup.ts. Created jest.setup.ts importing @testing-library/jest-dom. Added `npm test` script. Created placeholder passing test in __tests__/placeholder.test.ts.
+- Files changed: beat-planner/jest.config.ts (new), beat-planner/jest.setup.ts (new), beat-planner/package.json, beat-planner/package-lock.json, beat-planner/__tests__/placeholder.test.ts (new)
+- **Learnings for future iterations:**
+  - The correct Jest config option for setup files that run after the test env is `setupFilesAfterEnv` (common mistake: setupFilesAfterFramework)
+  - Use `/** @jest-environment node */` docblock at the top of API route test files to override to node env
+  - `next/jest` transformer handles Next.js aliases (@/) and SWC transform automatically — no babel config needed
 ---
