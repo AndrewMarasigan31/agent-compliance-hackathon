@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import dynamic from "next/dynamic";
 import UploadForm from "@/components/UploadForm";
+import AgentBeatAssignment from "@/components/AgentBeatAssignment";
 import { Store, BeatResult, BeatStore } from "@/types";
 
 const BeatMap = dynamic(() => import("@/components/BeatMap"), { ssr: false });
@@ -21,8 +22,11 @@ export default function DashboardPage() {
   const [uploadResult, setUploadResult] = useState<UploadResult | null>(null);
   const [beats, setBeats] = useState<BeatResult[] | null>(null);
   const [beatsLoading, setBeatsLoading] = useState(false);
+  const [beatAssignments, setBeatAssignments] = useState<Record<number, string>>({});
   const [dayAssignments, setDayAssignments] = useState<Record<number, string>>({});
   const [routedStores, setRoutedStores] = useState<Record<number, BeatStore[]>>({});
+  // "assign-agents" step shows AgentBeatAssignment; "assign-days" shows day table
+  const [step, setStep] = useState<"assign-agents" | "assign-days">("assign-agents");
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -32,7 +36,9 @@ export default function DashboardPage() {
   async function handleUploadSuccess(data: UploadResult) {
     setUploadResult(data);
     setBeats(null);
+    setBeatAssignments({});
     setDayAssignments({});
+    setStep("assign-agents");
     setBeatsLoading(true);
 
     const res = await fetch("/api/beats", {
@@ -131,6 +137,10 @@ export default function DashboardPage() {
               beats={beats}
               onBeatsChange={(updated) => {
                 setBeats(updated);
+                setBeatAssignments((prev) => {
+                  const validIds = new Set(updated.map((b) => b.beatId));
+                  return Object.fromEntries(Object.entries(prev).filter(([id]) => validIds.has(Number(id))));
+                });
                 setDayAssignments((prev) => {
                   const validIds = new Set(updated.map((b) => b.beatId));
                   return Object.fromEntries(Object.entries(prev).filter(([id]) => validIds.has(Number(id))));
@@ -139,6 +149,29 @@ export default function DashboardPage() {
               onRoutesChange={(rs) => setRoutedStores(rs)}
             />
 
+            {step === "assign-agents" && uploadResult && (
+              <AgentBeatAssignment
+                beats={beats}
+                agents={uploadResult.agents}
+                onAssignmentChange={(beatId, agentName) =>
+                  setBeatAssignments((prev) => ({ ...prev, [beatId]: agentName }))
+                }
+                onContinue={() => {
+                  setBeats((prev) =>
+                    prev
+                      ? prev.map((b) => ({ ...b, assignedAgent: beatAssignments[b.beatId] }))
+                      : prev
+                  );
+                  const initial: Record<number, string> = {};
+                  beats.forEach((b) => { initial[b.beatId] = "Unassigned"; });
+                  setDayAssignments(initial);
+                  setStep("assign-days");
+                }}
+              />
+            )}
+
+            {step === "assign-days" && (
+            <>
             {/* Day assignment table */}
             <div className="mt-8">
               <h3 className="text-lg font-semibold mb-3">Assign Days to Beats</h3>
@@ -212,6 +245,8 @@ export default function DashboardPage() {
                   ))}
                 </div>
               </div>
+            )}
+            </>
             )}
           </>
         )}
