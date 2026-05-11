@@ -90,3 +90,14 @@ Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
   - The `<>` fragment wrapping GCU rows in the component causes a React key warning (console.error) but does not fail tests; tests still pass 7/7
   - Run tests with `npx jest <path>` directly rather than `npm test -- --testPathPattern` (the latter uses deprecated option syntax in this Jest version)
 ---
+
+## 2026-05-11 - US-009
+Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
+- What was implemented: 3 tests for UploadForm (+ Add Agent appends input, upload button disabled when field empty, upload button enabled when all fields filled + file selected) and 3 tests for AgentDaySchedule (one tab per agent, active tab shows only assigned beats, switching tabs updates visible list).
+- Files changed: beat-planner/__tests__/UploadForm.test.tsx (new), beat-planner/__tests__/AgentDaySchedule.test.tsx (new)
+- **Learnings for future iterations:**
+  - For file input testing, use `document.querySelector('input[type="file"]')` since the input has `className="hidden"` with no accessible label
+  - UploadForm disables upload button when agent fields are empty OR no file — test them as separate conditions, not together
+  - AgentDaySchedule tabs are plain `<button>` elements, queryable by role + name (the agent name text)
+  - Beat rows show "Beat N" text, so `screen.getByText("Beat 1")` is sufficient for presence assertions
+---
