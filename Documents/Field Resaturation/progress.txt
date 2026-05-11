@@ -58,3 +58,12 @@ Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
   - AgentDaySchedule filters beats by beat.assignedAgent === activeAgent, so assignedAgent must be set on beats before this step
   - Download section already has per-agent structure ready; US-006 just needs to move to API-level filtering
 ---
+
+## 2026-05-11 - US-006
+Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
+- What was implemented: Per-agent exports. Dashboard UI was already in place from US-005. Fixed Content-Disposition filename in /api/kml and /api/csv from `route-[agentName]-[day].kml` to `[agentName]-[day].kml`. Beats are pre-filtered client-side in buildBeatsPayload before being sent to the API, so server-side filtering by agentName/day is handled transparently.
+- Files changed: beat-planner/app/api/kml/route.ts, beat-planner/app/api/csv/route.ts
+- **Learnings for future iterations:**
+  - The filename in Content-Disposition header must match the AC format exactly — browser a.download attribute overrides it client-side, but the API header should also be correct
+  - Client-side pre-filtering in buildBeatsPayload means the API only receives the relevant agent+day beats; no server-side filtering needed in the route handlers
+---
