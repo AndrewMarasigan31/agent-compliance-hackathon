@@ -9,7 +9,7 @@ import { Store, BeatResult, BeatStore } from "@/types";
 const BeatMap = dynamic(() => import("@/components/BeatMap"), { ssr: false });
 
 interface UploadResult {
-  agentName: string;
+  agents: string[];
   totalStores: number;
   excludedCount: number;
   gcus: { gcu: string; storeCount: number }[];
@@ -71,14 +71,14 @@ export default function DashboardPage() {
     const res = await fetch("/api/kml", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agentName: uploadResult.agentName, day, beats: beatsPayload }),
+      body: JSON.stringify({ agentName: uploadResult.agents[0], day, beats: beatsPayload }),
     });
     if (!res.ok) return;
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `route-${uploadResult.agentName}-${day.toLowerCase()}.kml`;
+    a.download = `route-${uploadResult.agents[0]}-${day.toLowerCase()}.kml`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -89,14 +89,14 @@ export default function DashboardPage() {
     const res = await fetch("/api/csv", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agentName: uploadResult.agentName, day, beats: beatsPayload }),
+      body: JSON.stringify({ agentName: uploadResult.agents[0], day, beats: beatsPayload }),
     });
     if (!res.ok) return;
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `route-${uploadResult.agentName}-${day.toLowerCase()}.csv`;
+    a.download = `route-${uploadResult.agents[0]}-${day.toLowerCase()}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
