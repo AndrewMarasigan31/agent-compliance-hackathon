@@ -1,3 +1,19 @@
+## Codebase Patterns
+- Dashboard state uses `UploadResult` interface defined locally in page.tsx (not in types/index.ts)
+- Build command: `npm run build` in beat-planner/ runs both typecheck and compilation
+- Types in beat-planner/types/index.ts are shared across components and API routes
+- BeatResult is the core domain type — extended with assignedAgent for multi-agent support
+- DayAssignments type: `{ [agentName: string]: { [beatId: number]: string } }` is the shape for multi-agent scheduling
+
 # Ralph Progress Log
 Started: Mon May 11 13:31:25 PST 2026
+---
+
+## 2026-05-11 - US-001
+- What was implemented: Added `assignedAgent?: string` to BeatResult interface; added `DayAssignments` type alias with comment documenting agents[] replaces agentName in dashboard state shape
+- Files changed: beat-planner/types/index.ts
+- **Learnings for future iterations:**
+  - BeatResult in types/index.ts is the right place for assignedAgent — all downstream components import from there
+  - DayAssignments type documents the nested shape `{ [agentName]: { [beatId]: day } }` needed for multi-agent scheduling
+  - UploadResult interface lives locally in dashboard/page.tsx — will need updating in US-004 when we wire in agents[]
 ---
