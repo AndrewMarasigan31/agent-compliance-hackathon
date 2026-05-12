@@ -74,14 +74,16 @@ export async function POST(req: NextRequest) {
       continue;
     }
 
-    // Only include stores with a last_delivered_date in 2025 or later
+    // Only include stores delivered within the last 30 days
     const lastDelivered = row["last_delivered_date"]?.trim() || "";
     if (!lastDelivered) {
       excludedCount++;
       continue;
     }
-    const deliveryYear = new Date(lastDelivered).getFullYear();
-    if (isNaN(deliveryYear) || deliveryYear < 2025) {
+    const deliveryDate = new Date(lastDelivered);
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 30);
+    if (isNaN(deliveryDate.getTime()) || deliveryDate < cutoff) {
       excludedCount++;
       continue;
     }
