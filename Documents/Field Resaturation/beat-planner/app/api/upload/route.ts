@@ -74,9 +74,8 @@ export async function POST(req: NextRequest) {
       continue;
     }
 
-    // Include stores in one of two buckets:
-    // 1. Churned (P60D): last order was in 2025 — reactivation targets
-    // 2. P30D: last order within the last 30 days from today
+    // Include stores that haven't ordered in the last 30 days,
+    // with last order in 2025 or 2026 (exclude older stale data)
     const lastDelivered = row["last_delivered_date"]?.trim() || "";
     if (!lastDelivered) {
       excludedCount++;
@@ -89,12 +88,14 @@ export async function POST(req: NextRequest) {
     }
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const isChurned2025 = deliveryDate.getFullYear() === 2025;
-    const isP30D = deliveryDate >= thirtyDaysAgo;
-    if (!isChurned2025 && !isP30D) {
+    const deliveryYear = deliveryDate.getFullYear();
+    const hasNotOrderedInP30D = deliveryDate < thirtyDaysAgo;
+    const isRecentEnough = deliveryYear >= 2025;
+    if (!hasNotOrderedInP30D || !isRecentEnough) {
       excludedCount++;
       continue;
     }
+
 
     stores.push({
       username: row["username"] || "",
