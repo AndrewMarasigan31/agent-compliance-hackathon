@@ -74,16 +74,24 @@ export async function POST(req: NextRequest) {
       continue;
     }
 
-    // Only include stores delivered within the last 30 days
+    // Include stores in one of two buckets:
+    // 1. Churned (P60D): last order was in 2025 — reactivation targets
+    // 2. P30D: last order within the last 30 days from today
     const lastDelivered = row["last_delivered_date"]?.trim() || "";
     if (!lastDelivered) {
       excludedCount++;
       continue;
     }
     const deliveryDate = new Date(lastDelivered);
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 30);
-    if (isNaN(deliveryDate.getTime()) || deliveryDate < cutoff) {
+    if (isNaN(deliveryDate.getTime())) {
+      excludedCount++;
+      continue;
+    }
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const isChurned2025 = deliveryDate.getFullYear() === 2025;
+    const isP30D = deliveryDate >= thirtyDaysAgo;
+    if (!isChurned2025 && !isP30D) {
       excludedCount++;
       continue;
     }
