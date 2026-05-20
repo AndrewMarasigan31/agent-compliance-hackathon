@@ -85,7 +85,7 @@
         "GitHub issue #5 closed with comment linking to the commit"
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {

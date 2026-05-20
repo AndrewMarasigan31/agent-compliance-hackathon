@@ -13,3 +13,20 @@
   - `visit_date` reads as float64 until explicitly parsed with pd.to_datetime
   - Branch `ralph/agent-compliance-store-selection` created fresh from `ralph/multi-agent-assignment`
 ---
+
+## 2026-05-20 - US-004
+- select_stores() was already committed in prior session but prd.json not updated
+- Updated prd.json passes: true; GitHub issue #4 was already closed
+- Files changed: prd.json
+---
+
+## 2026-05-20 - US-005
+- Implemented optimize_route() in app.py using nearest-neighbor heuristic
+- GCU centroid = mean lat/long of all_gcu_stores (full eligible pool, not just selected 30)
+- Greedy nearest-neighbor from centroid; uses _haversine_km for all distances
+- Returns df with 'rank' column (1–30)
+- Files changed: app.py, prd.json
+- **Learnings for future iterations:**
+  - Use original DataFrame index as keys in `remaining` list to avoid positional confusion after reset_index
+  - `remaining.remove()` on index values is O(n) but fine for n=30
+---
