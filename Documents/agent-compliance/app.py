@@ -190,3 +190,33 @@ def select_stores(new_revival: pd.DataFrame, p30d: pd.DataFrame, target: int = 3
     combined = pd.concat([nr_pick, p30_pick], ignore_index=True)
     combined = combined.drop_duplicates(subset=["store_name", "lat", "long"])
     return combined.head(target).reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------
+# Route optimizer — nearest-neighbor from GCU centroid
+# ---------------------------------------------------------------------------
+
+def optimize_route(selected: pd.DataFrame, all_gcu_stores: pd.DataFrame) -> pd.DataFrame:
+    """Order selected stores via nearest-neighbor from GCU centroid. Returns df with 'rank' column."""
+    if selected.empty:
+        return selected.copy().assign(rank=pd.Series([], dtype=int))
+
+    centroid_lat = all_gcu_stores["lat"].mean()
+    centroid_lon = all_gcu_stores["long"].mean()
+
+    remaining = list(selected.index)
+    ordered_indices = []
+    cur_lat, cur_lon = centroid_lat, centroid_lon
+
+    while remaining:
+        nearest = min(
+            remaining,
+            key=lambda i: _haversine_km(cur_lat, cur_lon, selected.at[i, "lat"], selected.at[i, "long"]),
+        )
+        ordered_indices.append(nearest)
+        cur_lat, cur_lon = selected.at[nearest, "lat"], selected.at[nearest, "long"]
+        remaining.remove(nearest)
+
+    result = selected.loc[ordered_indices].copy().reset_index(drop=True)
+    result["rank"] = range(1, len(result) + 1)
+    return result
