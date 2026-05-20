@@ -5,7 +5,7 @@ import streamlit as st
 from datetime import datetime, timedelta
 from streamlit_folium import st_folium
 
-CSV_PATH = "[Growth]_Resat_Store_Leads_3.0_v2_2026_05_20.csv"
+CSV_PATH = "store_leads.csv"
 TODAY = pd.Timestamp(datetime.now().date())
 CLOSED_REASONS = {"Permanently Closed", "Temporarily Closed", "Wala ang may ari"}
 EXCLUDED_STATUSES = {"pending", "dispatched"}
