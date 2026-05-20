@@ -28,3 +28,18 @@ def load_and_filter() -> pd.DataFrame:
     df = df[~visited_recently]
 
     return df.reset_index(drop=True)
+
+
+def split_pools(df: pd.DataFrame, gcu: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Return (new_revival_pool, p30d_pool) for the given GCU."""
+    gcu_df = df[df["gcu"] == gcu].copy()
+
+    days_since = (TODAY - gcu_df["last_delivered_date"]).dt.days
+
+    # New/Revival: never ordered (null) OR 60+ days since last delivery
+    new_revival = gcu_df[gcu_df["last_delivered_date"].isna() | (days_since >= 60)].copy()
+
+    # P30D: 31–60 days since last delivery
+    p30d = gcu_df[(days_since >= 31) & (days_since < 60)].copy()
+
+    return new_revival.reset_index(drop=True), p30d.reset_index(drop=True)

@@ -1,0 +1,15 @@
+# Agent Compliance — Hackathon Store Selection
+# Ralph Progress Log
+# Branch: ralph/agent-compliance-store-selection
+# Started: 2026-05-20
+
+## 2026-05-20 - US-001
+- Implemented `load_and_filter()` in app.py with @st.cache_data
+- Parses last_delivered_date and visit_date as datetime (errors='coerce')
+- Excludes pending/dispatched orders, closed stores (3 reasons), stores visited within last 7 days
+- Files changed: app.py (created)
+- **Learnings for future iterations:**
+  - `bakit hindi umorder si customer?` column is object dtype with NaN rows — use .isin() for closed reason filtering
+  - `visit_date` reads as float64 until explicitly parsed with pd.to_datetime
+  - Branch `ralph/agent-compliance-store-selection` created fresh from `ralph/multi-agent-assignment`
+---

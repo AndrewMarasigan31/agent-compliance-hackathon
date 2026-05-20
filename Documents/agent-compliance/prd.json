@@ -1,0 +1,173 @@
+{
+  "project": "Agent Compliance — Hackathon Store Selection",
+  "branchName": "ralph/agent-compliance-store-selection",
+  "description": "Build a Streamlit app that generates a daily list of 30 prioritized, optimally routed stores per GCU for field agents, replacing manual store selection with a scored, ranked, and routed daily plan.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Data loading + filtering pipeline",
+      "description": "As a developer, I need a data loading module that reads the store leads CSV, parses all date columns, and filters out ineligible stores before any scoring happens.",
+      "acceptanceCriteria": [
+        "Load '[Growth]_Resat_Store_Leads_3.0_v2_2026_05_20.csv' into a pandas DataFrame",
+        "Parse 'last_delivered_date' and 'visit_date' as datetime columns (errors='coerce')",
+        "Exclude stores where 'latest_order_status' is 'pending' or 'dispatched'",
+        "Exclude stores where 'bakit hindi umorder si customer?' contains 'Permanently Closed', 'Temporarily Closed', or 'Wala ang may ari'",
+        "Exclude stores where 'visit_date' is within the last 7 days",
+        "Function returns a clean filtered DataFrame",
+        "GitHub issue #1 closed with comment linking to the commit"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "Pool splitter — New/Revival vs P30D",
+      "description": "As a developer, I need a pool splitter that divides filtered stores into two named pools per GCU based on last_delivered_date.",
+      "acceptanceCriteria": [
+        "Stores with 'last_delivered_date' 60+ days ago OR null (never ordered) go into the New/Revival pool",
+        "Stores with 'last_delivered_date' 31–60 days ago go into the P30D pool",
+        "Pools are scoped per GCU — function accepts a GCU code and returns two DataFrames",
+        "Both pools exclude stores already excluded by the filter pipeline",
+        "GitHub issue #2 closed with comment linking to the commit"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "Store scoring engine",
+      "description": "As a developer, I need a scoring engine that normalizes all inputs and applies weighted formulas to rank stores within each pool.",
+      "acceptanceCriteria": [
+        "All numeric inputs are min-max normalized to [0, 1] per pool before weighting (use +1e-9 in denominator to handle zero-range edge case)",
+        "New/Revival scoring: 0.30 × days_since_last_delivered + 0.25 × churn_tier + 0.20 × never_visited_bonus + 0.15 × geographic_cluster_density + 0.05 × delivery_proximity_score + 0.05 × attempt_penalty",
+        "churn_tier: 2=never ordered (null last_delivered_date), 1=60+ days churned, 0=approaching 60 days",
+        "never_visited_bonus: 1 if number_of_visits == 0 or null, else 0",
+        "geographic_cluster_density: count of other eligible stores within 2km radius using haversine distance",
+        "delivery_proximity_score: computed from 'delivery_days' column — score = max(0, (7 - days_until_next_delivery) / 6), where 1 day away = 1.0, 7 days away = 0.0",
+        "attempt_penalty: normalized number_of_visits (higher visits = higher penalty, subtracted from score)",
+        "P30D scoring: 0.30 × no_delivered_orders + 0.30 × days_since_last_delivered + 0.25 × delivery_proximity_score + 0.15 × recency_of_drop_off",
+        "Each store has a final 'score' column between 0 and 1",
+        "Stores are sorted descending by score within each pool",
+        "GitHub issue #3 closed with comment linking to the commit"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "Store selector — 70:30 split with cross-pool backfill",
+      "description": "As a developer, I need a store selector that picks exactly 30 stores per GCU using the 70:30 split, with automatic backfill when a pool runs short.",
+      "acceptanceCriteria": [
+        "Default split: top 21 from New/Revival pool + top 9 from P30D pool",
+        "If New/Revival has fewer than 21 stores, take all available and backfill remainder from P30D",
+        "If P30D has fewer than 9 stores, take all available and backfill remainder from New/Revival",
+        "Output is always exactly 30 stores (or all eligible stores if fewer than 30 exist in the GCU)",
+        "No duplicate stores in the final selection",
+        "Output DataFrame includes a 'pool' column indicating 'New/Revival' or 'P30D' for each store",
+        "GitHub issue #4 closed with comment linking to the commit"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "Route optimizer — nearest-neighbor from GCU centroid",
+      "description": "As a developer, I need a route optimizer that orders the 30 selected stores using a nearest-neighbor heuristic starting from the GCU centroid.",
+      "acceptanceCriteria": [
+        "GCU centroid is computed as mean lat/long of all eligible stores in the GCU (not just the 30 selected)",
+        "Nearest-neighbor traversal starts from the centroid and visits each of the 30 stores exactly once",
+        "Uses haversine distance for all proximity calculations",
+        "Output is the 30 stores as an ordered DataFrame with a 'rank' column (1–30)",
+        "GitHub issue #5 closed with comment linking to the commit"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "Streamlit app shell — GCU selector + generate pipeline",
+      "description": "As a supervisor, I want a Streamlit app where I can select a GCU and generate the daily store list by clicking a button.",
+      "acceptanceCriteria": [
+        "App file is named app.py and runs with 'streamlit run app.py'",
+        "Store data loads from CSV on startup using @st.cache_data",
+        "GCU dropdown lists all unique GCU codes derived from the data",
+        "Clicking 'Generate List' runs the full pipeline: filter → split → score → select → route",
+        "Resulting 30 ordered stores are stored in st.session_state['daily_list']",
+        "A success message shows the GCU name and store count after generation",
+        "GitHub issue #6 closed with comment linking to the commit"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "Folium map — numbered pins + route line",
+      "description": "As a supervisor, I want to see the 30 stores plotted on a map with numbered markers and a route line connecting them in visit order.",
+      "acceptanceCriteria": [
+        "Map is rendered using folium and embedded via streamlit-folium (st_folium)",
+        "Map centers on the GCU centroid at zoom level 13",
+        "Each store is shown as a numbered marker (1–30) in visit order",
+        "A blue polyline connects the stores in visit order",
+        "Hovering or clicking a marker shows the store name and barangay",
+        "Map only renders after 'Generate List' is clicked",
+        "GitHub issue #7 closed with comment linking to the commit"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "Store table — ordered visit list below map",
+      "description": "As a supervisor, I want to see a table below the map showing the 30 stores in visit order with key details.",
+      "acceptanceCriteria": [
+        "Table appears below the map after list generation",
+        "Columns: Rank, Store Name, Barangay, City, Pool (New/Revival or P30D), Days Since Last Order",
+        "'Days Since Last Order' shows an integer (today minus last_delivered_date), or 'Never' if null",
+        "Rows are sorted by rank ascending (rank 1 at top)",
+        "Rendered with st.dataframe with a fixed height of 400px",
+        "GitHub issue #8 closed with comment linking to the commit"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "CSV export per GCU",
+      "description": "As a supervisor, I want to download the 30-store list as a CSV to simulate the CASA push.",
+      "acceptanceCriteria": [
+        "A 'Download CSV' button appears after list generation",
+        "CSV columns: rank, store_name, barangay, city, gcu, lat, long, last_delivered_date, no_delivered_orders, delivery_days, pool",
+        "Stores are in visit order (rank 1 first)",
+        "File is named '{gcu}_daily_list.csv' (e.g., 'CB01_daily_list.csv')",
+        "Implemented with st.download_button — no server-side file writing",
+        "GitHub issue #9 closed with comment linking to the commit"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "Streamlit Cloud deployment",
+      "description": "As a supervisor, I want the app deployed to a public URL so leadership can access it for the demo.",
+      "acceptanceCriteria": [
+        "App is deployed to Streamlit Cloud from the AndrewMarasigan31/agent-compliance-hackathon GitHub repo",
+        "CSV data file is committed to the repo so the deployed app can load it",
+        "Public URL is accessible without login",
+        "Selecting a GCU and generating a list works end-to-end on the deployed app",
+        "GitHub issue #10 closed with comment linking to the commit"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}
