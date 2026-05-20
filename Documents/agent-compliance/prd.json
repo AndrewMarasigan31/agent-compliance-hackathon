@@ -102,7 +102,7 @@
         "GitHub issue #6 closed with comment linking to the commit"
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -119,7 +119,7 @@
         "GitHub issue #7 closed with comment linking to the commit"
       ],
       "priority": 7,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -135,7 +135,7 @@
         "GitHub issue #8 closed with comment linking to the commit"
       ],
       "priority": 8,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -151,7 +151,7 @@
         "GitHub issue #9 closed with comment linking to the commit"
       ],
       "priority": 9,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
