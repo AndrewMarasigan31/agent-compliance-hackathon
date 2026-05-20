@@ -291,6 +291,20 @@ def main():
         m = build_map(daily_list, all_gcu_stores)
         st_folium(m, width="100%", height=500)
 
+        # Store table
+        def _days_since_label(last_date):
+            if pd.isna(last_date):
+                return "Never"
+            return int((TODAY - last_date).days)
+
+        table = daily_list[["rank", "store_name", "barangay", "city", "pool", "last_delivered_date"]].copy()
+        table["Days Since Last Order"] = table["last_delivered_date"].apply(_days_since_label)
+        table = table.drop(columns=["last_delivered_date"])
+        table.columns = ["Rank", "Store Name", "Barangay", "City", "Pool", "Days Since Last Order"]
+        table = table.sort_values("Rank").reset_index(drop=True)
+
+        st.dataframe(table, height=400, use_container_width=True)
+
 
 if __name__ == "__main__":
     main()
