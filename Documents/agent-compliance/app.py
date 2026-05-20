@@ -305,6 +305,18 @@ def main():
 
         st.dataframe(table, height=400, use_container_width=True)
 
+        # CSV export
+        csv_cols = ["rank", "store_name", "barangay", "city", "gcu", "lat", "long",
+                    "last_delivered_date", "no_delivered_orders", "delivery_days", "pool"]
+        export_df = daily_list[[c for c in csv_cols if c in daily_list.columns]].sort_values("rank")
+        csv_bytes = export_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="Download CSV",
+            data=csv_bytes,
+            file_name=f"{gcu}_daily_list.csv",
+            mime="text/csv",
+        )
+
 
 if __name__ == "__main__":
     main()
