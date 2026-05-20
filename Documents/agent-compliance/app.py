@@ -157,3 +157,36 @@ def score_p30d(pool: pd.DataFrame) -> pd.DataFrame:
     )
 
     return df.sort_values("score", ascending=False).reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------
+# Store selector — 70:30 split with cross-pool backfill
+# ---------------------------------------------------------------------------
+
+def select_stores(new_revival: pd.DataFrame, p30d: pd.DataFrame, target: int = 30) -> pd.DataFrame:
+    """Pick exactly `target` stores using 70:30 split with cross-pool backfill."""
+    nr_target = round(target * 0.70)  # 21
+    p30_target = target - nr_target   # 9
+
+    nr_pool = new_revival.copy()
+    nr_pool["pool"] = "New/Revival"
+    p30_pool = p30d.copy()
+    p30_pool["pool"] = "P30D"
+
+    nr_pick = nr_pool.head(nr_target)
+    p30_pick = p30_pool.head(p30_target)
+
+    nr_shortfall = nr_target - len(nr_pick)
+    p30_shortfall = p30_target - len(p30_pick)
+
+    if nr_shortfall > 0:
+        extra = p30_pool.iloc[p30_target:p30_target + nr_shortfall]
+        p30_pick = pd.concat([p30_pick, extra], ignore_index=True)
+
+    if p30_shortfall > 0:
+        extra = nr_pool.iloc[nr_target:nr_target + p30_shortfall]
+        nr_pick = pd.concat([nr_pick, extra], ignore_index=True)
+
+    combined = pd.concat([nr_pick, p30_pick], ignore_index=True)
+    combined = combined.drop_duplicates(subset=["store_name", "lat", "long"])
+    return combined.head(target).reset_index(drop=True)

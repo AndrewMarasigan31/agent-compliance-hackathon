@@ -32,7 +32,7 @@
         "GitHub issue #2 closed with comment linking to the commit"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -53,7 +53,7 @@
         "GitHub issue #3 closed with comment linking to the commit"
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
