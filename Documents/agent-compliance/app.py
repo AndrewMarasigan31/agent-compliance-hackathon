@@ -1,7 +1,9 @@
 import math
+import folium
 import pandas as pd
 import streamlit as st
 from datetime import datetime, timedelta
+from streamlit_folium import st_folium
 
 CSV_PATH = "[Growth]_Resat_Store_Leads_3.0_v2_2026_05_20.csv"
 TODAY = pd.Timestamp(datetime.now().date())
@@ -235,6 +237,37 @@ def run_pipeline(df: pd.DataFrame, gcu: str) -> pd.DataFrame:
     return optimize_route(selected, all_gcu_stores)
 
 
+def build_map(daily_list: pd.DataFrame, all_gcu_stores: pd.DataFrame) -> folium.Map:
+    centroid_lat = all_gcu_stores["lat"].mean()
+    centroid_lon = all_gcu_stores["long"].mean()
+
+    m = folium.Map(location=[centroid_lat, centroid_lon], zoom_start=13)
+
+    coords = []
+    for _, row in daily_list.iterrows():
+        lat, lon = row["lat"], row["long"]
+        rank = int(row["rank"])
+        coords.append((lat, lon))
+
+        folium.Marker(
+            location=[lat, lon],
+            icon=folium.DivIcon(
+                html=f'<div style="background:#1f77b4;color:white;border-radius:50%;width:24px;height:24px;'
+                     f'display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:11px;">'
+                     f'{rank}</div>',
+                icon_size=(24, 24),
+                icon_anchor=(12, 12),
+            ),
+            tooltip=f"{rank}. {row.get('store_name', '')} — {row.get('barangay', '')}",
+            popup=f"<b>{row.get('store_name', '')}</b><br>{row.get('barangay', '')}",
+        ).add_to(m)
+
+    if len(coords) > 1:
+        folium.PolyLine(coords, color="blue", weight=2, opacity=0.7).add_to(m)
+
+    return m
+
+
 def main():
     st.set_page_config(page_title="Agent Compliance — Daily Store List", layout="wide")
     st.title("Agent Compliance — Daily Store List")
@@ -249,6 +282,14 @@ def main():
         st.session_state["daily_list"] = daily_list
         st.session_state["selected_gcu"] = selected_gcu
         st.success(f"Generated {len(daily_list)} stores for {selected_gcu}")
+
+    if "daily_list" in st.session_state:
+        daily_list = st.session_state["daily_list"]
+        gcu = st.session_state["selected_gcu"]
+        all_gcu_stores = df[df["gcu"] == gcu]
+
+        m = build_map(daily_list, all_gcu_stores)
+        st_folium(m, width="100%", height=500)
 
 
 if __name__ == "__main__":
