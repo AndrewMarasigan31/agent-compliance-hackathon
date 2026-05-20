@@ -30,3 +30,41 @@
   - Use original DataFrame index as keys in `remaining` list to avoid positional confusion after reset_index
   - `remaining.remove()` on index values is O(n) but fine for n=30
 ---
+
+## 2026-05-20 - US-006
+- Implemented run_pipeline() and main() Streamlit shell in app.py
+- GCU dropdown from data, "Generate List" button runs full pipeline, stores result in st.session_state
+- Files changed: app.py
+- **Learnings for future iterations:**
+  - Streamlit session_state persists across reruns on button click
+---
+
+## 2026-05-20 - US-007
+- Implemented build_map() using folium + streamlit-folium (st_folium)
+- DivIcon for numbered markers (1–30), PolyLine for route, tooltip/popup for store name + barangay
+- Map renders only after Generate List is clicked (session_state guard)
+- Files changed: app.py (added folium and streamlit_folium imports)
+---
+
+## 2026-05-20 - US-008
+- Added store table below map using st.dataframe with height=400
+- 'Days Since Last Order' computed as int or 'Never' for null last_delivered_date
+- Files changed: app.py
+---
+
+## 2026-05-20 - US-009
+- Added st.download_button for CSV export
+- Columns: rank, store_name, barangay, city, gcu, lat, long, last_delivered_date, no_delivered_orders, delivery_days, pool
+- File named {gcu}_daily_list.csv
+- Files changed: app.py
+---
+
+## 2026-05-20 - US-010
+- Created requirements.txt with all dependencies
+- Committed CSV data file to repo
+- Pushed branch to AndrewMarasigan31/agent-compliance-hackathon
+- Files changed: requirements.txt (created), prd.json
+- **Learnings for future iterations:**
+  - Git root is /Users/andrew (not the project dir), so files commit under Documents/agent-compliance/
+  - Streamlit Cloud main file path must be set to Documents/agent-compliance/app.py
+---
