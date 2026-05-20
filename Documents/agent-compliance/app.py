@@ -220,3 +220,36 @@ def optimize_route(selected: pd.DataFrame, all_gcu_stores: pd.DataFrame) -> pd.D
     result = selected.loc[ordered_indices].copy().reset_index(drop=True)
     result["rank"] = range(1, len(result) + 1)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Streamlit app
+# ---------------------------------------------------------------------------
+
+def run_pipeline(df: pd.DataFrame, gcu: str) -> pd.DataFrame:
+    new_revival_raw, p30d_raw = split_pools(df, gcu)
+    new_revival = score_new_revival(new_revival_raw) if not new_revival_raw.empty else new_revival_raw
+    p30d = score_p30d(p30d_raw) if not p30d_raw.empty else p30d_raw
+    selected = select_stores(new_revival, p30d)
+    all_gcu_stores = df[df["gcu"] == gcu]
+    return optimize_route(selected, all_gcu_stores)
+
+
+def main():
+    st.set_page_config(page_title="Agent Compliance — Daily Store List", layout="wide")
+    st.title("Agent Compliance — Daily Store List")
+
+    df = load_and_filter()
+
+    gcus = sorted(df["gcu"].dropna().unique().tolist())
+    selected_gcu = st.selectbox("Select GCU", gcus)
+
+    if st.button("Generate List"):
+        daily_list = run_pipeline(df, selected_gcu)
+        st.session_state["daily_list"] = daily_list
+        st.session_state["selected_gcu"] = selected_gcu
+        st.success(f"Generated {len(daily_list)} stores for {selected_gcu}")
+
+
+if __name__ == "__main__":
+    main()
