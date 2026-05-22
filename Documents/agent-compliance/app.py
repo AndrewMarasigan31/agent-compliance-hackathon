@@ -379,18 +379,29 @@ def main():
 
         st.subheader(f"{saved_agent} — {len(beats)} Beat(s)")
 
-        beat_labels = [f"Beat {i+1}" for i in range(len(beats))]
+        beat_labels = ["All"] + [f"Beat {i+1}" for i in range(len(beats))]
         col_beat, col_toggle = st.columns([3, 1])
         with col_beat:
             selected_beat_label = st.selectbox("Select Beat", beat_labels)
         with col_toggle:
-            show_all = st.toggle("Show all beats on map", value=False)
+            show_all_map = st.toggle("Show all beats on map", value=False)
 
-        beat_idx = beat_labels.index(selected_beat_label)
-        daily_list = beats[beat_idx]
-        beat_color = BEAT_COLORS[beat_idx % len(BEAT_COLORS)]
+        # Build the active dataframe — either one beat or all combined
+        if selected_beat_label == "All":
+            frames = []
+            for i, b in enumerate(beats):
+                b2 = b.copy()
+                b2["Beat"] = f"Beat {i+1}"
+                frames.append(b2)
+            daily_list = pd.concat(frames, ignore_index=True)
+            beat_color = "#1f77b4"
+        else:
+            beat_idx = beat_labels.index(selected_beat_label) - 1
+            daily_list = beats[beat_idx].copy()
+            daily_list["Beat"] = selected_beat_label
+            beat_color = BEAT_COLORS[beat_idx % len(BEAT_COLORS)]
 
-        if show_all:
+        if show_all_map or selected_beat_label == "All":
             m = build_all_beats_map(beats, df)
         else:
             m = build_map(daily_list, daily_list, color=beat_color)
@@ -402,36 +413,34 @@ def main():
                 return "Never"
             return int((TODAY - last_date).days)
 
-        cols = ["rank", "store_name", "barangay", "city", "pool",
+        cols = ["Beat", "rank", "store_name", "barangay", "city", "pool",
                 "last_delivered_date", "_never_visited", "score"]
         for col in ["username", "gcu"]:
             if col in daily_list.columns:
                 cols.append(col)
-        table = daily_list[cols].copy()
+        table = daily_list[[c for c in cols if c in daily_list.columns]].copy()
         table["Days Since Last Order"] = table["last_delivered_date"].apply(_days_since_label)
         table["Never Visited"] = table["_never_visited"].apply(lambda x: "Yes" if x == 1.0 else "No")
         table["score"] = table["score"].round(2)
         table = table.drop(columns=["last_delivered_date", "_never_visited"])
         rename_map = {"rank": "Rank", "store_name": "Store Name", "barangay": "Barangay",
-                      "city": "City", "pool": "Pool", "score": "Score", "username": "Username"}
+                      "city": "City", "pool": "Pool", "score": "Score",
+                      "username": "Username", "gcu": "GCU"}
         table = table.rename(columns=rename_map)
-        if "gcu" in table.columns:
-            table = table.rename(columns={"gcu": "GCU"})
-        display_cols = ["Rank", "Store Name"]
-        if "Username" in table.columns:
-            display_cols.append("Username")
-        if "GCU" in table.columns:
-            display_cols.append("GCU")
+        display_cols = ["Beat", "Rank", "Store Name"]
+        for c in ["Username", "GCU"]:
+            if c in table.columns:
+                display_cols.append(c)
         display_cols += ["Barangay", "City", "Pool", "Never Visited", "Days Since Last Order", "Score"]
         table = table[[c for c in display_cols if c in table.columns]]
-        table = table.sort_values("Rank").reset_index(drop=True)
+        table = table.sort_values(["Beat", "Rank"]).reset_index(drop=True)
 
         st.dataframe(table, height=400, use_container_width=True)
 
         with st.expander("How stores are scored"):
             col1, col2 = st.columns(2)
             with col1:
-                st.markdown("**New/Revival pool (top 21)**")
+                st.markdown("**New/Revival pool**")
                 st.markdown("""
 | Factor | Weight |
 |---|---|
@@ -444,7 +453,7 @@ Scope: never-ordered OR 60–730 days churned. Stores with 5+ visits and 0 order
 All inputs normalized 0–1 before weighting.
 """)
             with col2:
-                st.markdown("**P30D pool (top 9)**")
+                st.markdown("**P30D pool**")
                 st.markdown("""
 | Factor | Weight |
 |---|---|
@@ -457,14 +466,17 @@ All inputs normalized 0–1 before weighting.
 """)
 
         # CSV export
-        csv_cols = ["rank", "store_name", "barangay", "city", "gcu", "lat", "long",
+        csv_cols = ["Beat", "rank", "store_name", "barangay", "city", "gcu", "lat", "long",
                     "last_delivered_date", "no_delivered_orders", "delivery_days", "pool"]
-        export_df = daily_list[[c for c in csv_cols if c in daily_list.columns]].sort_values("rank")
+        export_df = daily_list[[c for c in csv_cols if c in daily_list.columns]]
+        if selected_beat_label != "All":
+            export_df = export_df.sort_values("rank")
         csv_bytes = export_df.to_csv(index=False).encode("utf-8")
+        file_label = "All_Beats" if selected_beat_label == "All" else selected_beat_label.replace(" ", "_")
         st.download_button(
             label=f"Download {selected_beat_label} CSV",
             data=csv_bytes,
-            file_name=f"{saved_agent.replace(' ', '_')}_{selected_beat_label.replace(' ', '_')}_daily_list.csv",
+            file_name=f"{saved_agent.replace(' ', '_')}_{file_label}_daily_list.csv",
             mime="text/csv",
         )
 
