@@ -144,11 +144,12 @@ def score_p30d(pool: pd.DataFrame) -> pd.DataFrame:
     df["_delivery_proximity"] = df["delivery_days"].apply(
         lambda x: max(0.0, (7 - _days_until_next_delivery(x)) / 6)
     )
+    df["_churn_tier"] = 0
+    df["_never_visited"] = (df["number_of_visits"].isna() | (df["number_of_visits"] == 0)).astype(float)
 
     n_orders = _minmax(df["no_delivered_orders"].fillna(0).astype(float))
     n_days = _minmax(days_since)
     n_delivery = _minmax(df["_delivery_proximity"])
-    # recency_of_drop_off: lower days_since = more recent = higher score
     n_recency = 1.0 - n_days
 
     df["score"] = (
@@ -359,11 +360,20 @@ def main():
                 return "Never"
             return int((TODAY - last_date).days)
 
-        table = daily_list[["rank", "store_name", "barangay", "city", "pool", "last_delivered_date", "score"]].copy()
+        def _churn_label(tier):
+            return {2: "Never Ordered", 1: "60+ Days", 0: "Approaching 60d"}.get(int(tier), "—")
+
+        table = daily_list[["rank", "store_name", "barangay", "city", "pool",
+                             "last_delivered_date", "_churn_tier", "_never_visited", "score"]].copy()
         table["Days Since Last Order"] = table["last_delivered_date"].apply(_days_since_label)
+        table["Churn Depth"] = table["_churn_tier"].apply(_churn_label)
+        table["Never Visited"] = table["_never_visited"].apply(lambda x: "Yes" if x == 1.0 else "No")
         table["score"] = table["score"].round(2)
-        table = table.drop(columns=["last_delivered_date"])
-        table.columns = ["Rank", "Store Name", "Barangay", "City", "Pool", "Days Since Last Order", "Score"]
+        table = table.drop(columns=["last_delivered_date", "_churn_tier", "_never_visited"])
+        table.columns = ["Rank", "Store Name", "Barangay", "City", "Pool",
+                         "Score", "Days Since Last Order", "Churn Depth", "Never Visited"]
+        table = table[["Rank", "Store Name", "Barangay", "City", "Pool",
+                        "Churn Depth", "Never Visited", "Days Since Last Order", "Score"]]
         table = table.sort_values("Rank").reset_index(drop=True)
 
         st.dataframe(table, height=400, use_container_width=True)
