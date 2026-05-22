@@ -36,9 +36,19 @@ def load_and_filter() -> pd.DataFrame:
 
 
 def _apply_hard_exclusions(df: pd.DataFrame) -> pd.DataFrame:
-    """Exclude stores with >= 5 visits and zero delivered orders."""
+    """Keep only stores eligible for scoring: correct day window, not hard-excluded."""
+    # Remove repeat no-conversion stores
     mask = (df["number_of_visits"].fillna(0) >= 5) & (df["no_delivered_orders"].fillna(0) == 0)
-    return df[~mask].reset_index(drop=True)
+    df = df[~mask].copy()
+
+    # Keep only stores in the eligible day windows
+    days_since = (TODAY - df["last_delivered_date"]).dt.days
+    eligible = (
+        df["last_delivered_date"].isna()                          # never ordered
+        | ((days_since >= 60) & (days_since <= 730))              # New/Revival: 60–730 days
+        | ((days_since >= 31) & (days_since < 60))                # P30D: 31–60 days
+    )
+    return df[eligible].reset_index(drop=True)
 
 
 def _split_pools_from_df(cluster_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
