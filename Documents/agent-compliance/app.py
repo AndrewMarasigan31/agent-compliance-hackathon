@@ -260,35 +260,56 @@ def run_pipeline(df: pd.DataFrame, gcu: str) -> list[pd.DataFrame]:
     return beats
 
 
-def build_map(daily_list: pd.DataFrame, all_gcu_stores: pd.DataFrame) -> folium.Map:
+BEAT_COLORS = [
+    "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+    "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+    "#aec7e8", "#ffbb78",
+]
+
+
+def build_map(daily_list: pd.DataFrame, all_gcu_stores: pd.DataFrame, color: str = "#1f77b4") -> folium.Map:
     centroid_lat = all_gcu_stores["lat"].mean()
     centroid_lon = all_gcu_stores["long"].mean()
 
     m = folium.Map(location=[centroid_lat, centroid_lon], zoom_start=13)
+    _add_beat_to_map(m, daily_list, color)
+    return m
 
+
+def build_all_beats_map(beats: list[pd.DataFrame], all_gcu_stores: pd.DataFrame) -> folium.Map:
+    centroid_lat = all_gcu_stores["lat"].mean()
+    centroid_lon = all_gcu_stores["long"].mean()
+
+    m = folium.Map(location=[centroid_lat, centroid_lon], zoom_start=12)
+    for i, beat in enumerate(beats):
+        color = BEAT_COLORS[i % len(BEAT_COLORS)]
+        _add_beat_to_map(m, beat, color, beat_label=f"Beat {i+1}")
+    return m
+
+
+def _add_beat_to_map(m: folium.Map, daily_list: pd.DataFrame, color: str, beat_label: str = "") -> None:
     coords = []
     for _, row in daily_list.iterrows():
         lat, lon = row["lat"], row["long"]
         rank = int(row["rank"])
         coords.append((lat, lon))
 
+        label = f"{beat_label} #{rank}" if beat_label else str(rank)
         folium.Marker(
             location=[lat, lon],
             icon=folium.DivIcon(
-                html=f'<div style="background:#1f77b4;color:white;border-radius:50%;width:24px;height:24px;'
-                     f'display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:11px;">'
+                html=f'<div style="background:{color};color:white;border-radius:50%;width:24px;height:24px;'
+                     f'display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:10px;">'
                      f'{rank}</div>',
                 icon_size=(24, 24),
                 icon_anchor=(12, 12),
             ),
-            tooltip=f"{rank}. {row.get('store_name', '')} — {row.get('barangay', '')}",
-            popup=f"<b>{row.get('store_name', '')}</b><br>{row.get('barangay', '')}",
+            tooltip=f"{label}. {row.get('store_name', '')} — {row.get('barangay', '')}",
+            popup=f"<b>{row.get('store_name', '')}</b><br>{row.get('barangay', '')}<br>{beat_label}",
         ).add_to(m)
 
     if len(coords) > 1:
-        folium.PolyLine(coords, color="blue", weight=2, opacity=0.7).add_to(m)
-
-    return m
+        folium.PolyLine(coords, color=color, weight=2, opacity=0.7).add_to(m)
 
 
 def main():
@@ -312,11 +333,20 @@ def main():
         all_gcu_stores = df[df["gcu"] == gcu]
 
         beat_labels = [f"Beat {i+1}" for i in range(len(beats))]
-        selected_beat_label = st.selectbox("Select Beat", beat_labels)
+        col_beat, col_toggle = st.columns([3, 1])
+        with col_beat:
+            selected_beat_label = st.selectbox("Select Beat", beat_labels)
+        with col_toggle:
+            show_all = st.toggle("Show all beats on map", value=False)
+
         beat_idx = beat_labels.index(selected_beat_label)
         daily_list = beats[beat_idx]
+        beat_color = BEAT_COLORS[beat_idx % len(BEAT_COLORS)]
 
-        m = build_map(daily_list, all_gcu_stores)
+        if show_all:
+            m = build_all_beats_map(beats, all_gcu_stores)
+        else:
+            m = build_map(daily_list, all_gcu_stores, color=beat_color)
         st_folium(m, width="100%", height=500)
 
         # Store table
