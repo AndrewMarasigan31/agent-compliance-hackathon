@@ -414,10 +414,10 @@ def main():
         rename_map = {"rank": "Rank", "store_name": "Store Name", "barangay": "Barangay",
                       "city": "City", "pool": "Pool", "score": "Score", "username": "Username"}
         table = table.rename(columns=rename_map)
-        display_cols = ["Rank", "Store Name", "Barangay", "City", "Pool",
-                        "Never Visited", "Days Since Last Order", "Score"]
+        display_cols = ["Rank", "Store Name"]
         if "Username" in table.columns:
             display_cols.append("Username")
+        display_cols += ["Barangay", "City", "Pool", "Never Visited", "Days Since Last Order", "Score"]
         table = table[display_cols]
         table = table.sort_values("Rank").reset_index(drop=True)
 
