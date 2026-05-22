@@ -229,13 +229,35 @@ def optimize_route(selected: pd.DataFrame, all_gcu_stores: pd.DataFrame) -> pd.D
 # Streamlit app
 # ---------------------------------------------------------------------------
 
-def run_pipeline(df: pd.DataFrame, gcu: str) -> pd.DataFrame:
-    new_revival_raw, p30d_raw = split_pools(df, gcu)
-    new_revival = score_new_revival(new_revival_raw) if not new_revival_raw.empty else new_revival_raw
-    p30d = score_p30d(p30d_raw) if not p30d_raw.empty else p30d_raw
-    selected = select_stores(new_revival, p30d)
+def run_pipeline(df: pd.DataFrame, gcu: str) -> list[pd.DataFrame]:
+    """Return a list of beats (each a 30-store DataFrame ranked 1–30) for the GCU."""
     all_gcu_stores = df[df["gcu"] == gcu]
-    return optimize_route(selected, all_gcu_stores)
+    remaining = df[df["gcu"] == gcu].copy()
+    beats = []
+
+    while True:
+        new_revival_raw, p30d_raw = split_pools(remaining, gcu)
+        if new_revival_raw.empty and p30d_raw.empty:
+            break
+
+        new_revival = score_new_revival(new_revival_raw) if not new_revival_raw.empty else new_revival_raw
+        p30d = score_p30d(p30d_raw) if not p30d_raw.empty else p30d_raw
+        selected = select_stores(new_revival, p30d)
+
+        if selected.empty:
+            break
+
+        beat = optimize_route(selected, all_gcu_stores)
+        beats.append(beat)
+
+        # Remove selected stores from remaining pool
+        used_idx = selected.index if hasattr(selected, 'index') else []
+        used_keys = set(zip(selected["lat"], selected["long"]))
+        remaining = remaining[
+            ~remaining.apply(lambda r: (r["lat"], r["long"]) in used_keys, axis=1)
+        ].reset_index(drop=True)
+
+    return beats
 
 
 def build_map(daily_list: pd.DataFrame, all_gcu_stores: pd.DataFrame) -> folium.Map:
@@ -279,15 +301,20 @@ def main():
     selected_gcu = st.selectbox("Select GCU", gcus)
 
     if st.button("Generate List"):
-        daily_list = run_pipeline(df, selected_gcu)
-        st.session_state["daily_list"] = daily_list
+        beats = run_pipeline(df, selected_gcu)
+        st.session_state["beats"] = beats
         st.session_state["selected_gcu"] = selected_gcu
-        st.success(f"Generated {len(daily_list)} stores for {selected_gcu}")
+        st.success(f"Generated {len(beats)} beat(s) for {selected_gcu}")
 
-    if "daily_list" in st.session_state:
-        daily_list = st.session_state["daily_list"]
+    if "beats" in st.session_state and st.session_state.get("selected_gcu") == selected_gcu:
+        beats = st.session_state["beats"]
         gcu = st.session_state["selected_gcu"]
         all_gcu_stores = df[df["gcu"] == gcu]
+
+        beat_labels = [f"Beat {i+1}" for i in range(len(beats))]
+        selected_beat_label = st.selectbox("Select Beat", beat_labels)
+        beat_idx = beat_labels.index(selected_beat_label)
+        daily_list = beats[beat_idx]
 
         m = build_map(daily_list, all_gcu_stores)
         st_folium(m, width="100%", height=500)
@@ -298,13 +325,43 @@ def main():
                 return "Never"
             return int((TODAY - last_date).days)
 
-        table = daily_list[["rank", "store_name", "barangay", "city", "pool", "last_delivered_date"]].copy()
+        table = daily_list[["rank", "store_name", "barangay", "city", "pool", "last_delivered_date", "score"]].copy()
         table["Days Since Last Order"] = table["last_delivered_date"].apply(_days_since_label)
+        table["score"] = table["score"].round(2)
         table = table.drop(columns=["last_delivered_date"])
-        table.columns = ["Rank", "Store Name", "Barangay", "City", "Pool", "Days Since Last Order"]
+        table.columns = ["Rank", "Store Name", "Barangay", "City", "Pool", "Days Since Last Order", "Score"]
         table = table.sort_values("Rank").reset_index(drop=True)
 
         st.dataframe(table, height=400, use_container_width=True)
+
+        with st.expander("How stores are scored"):
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("**New/Revival pool (top 21)**")
+                st.markdown("""
+| Factor | Weight |
+|---|---|
+| Days since last order | 30% |
+| Churn depth (never > 60d > approaching) | 25% |
+| Never visited before | 20% |
+| Nearby store density (2km radius) | 15% |
+| Delivery day coming soon | 5% |
+| Repeat visit penalty | −5% |
+
+All inputs normalized 0–1 before weighting.
+""")
+            with col2:
+                st.markdown("**P30D pool (top 9)**")
+                st.markdown("""
+| Factor | Weight |
+|---|---|
+| Order frequency | 30% |
+| Days since last order | 30% |
+| Delivery day coming soon | 25% |
+| Recency of last drop-off | 15% |
+
+All inputs normalized 0–1 before weighting.
+""")
 
         # CSV export
         csv_cols = ["rank", "store_name", "barangay", "city", "gcu", "lat", "long",
@@ -312,9 +369,9 @@ def main():
         export_df = daily_list[[c for c in csv_cols if c in daily_list.columns]].sort_values("rank")
         csv_bytes = export_df.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label="Download CSV",
+            label=f"Download {selected_beat_label} CSV",
             data=csv_bytes,
-            file_name=f"{gcu}_daily_list.csv",
+            file_name=f"{gcu}_{selected_beat_label.replace(' ', '_')}_daily_list.csv",
             mime="text/csv",
         )
 
