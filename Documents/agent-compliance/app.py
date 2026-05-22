@@ -402,16 +402,23 @@ def main():
                 return "Never"
             return int((TODAY - last_date).days)
 
-        table = daily_list[["rank", "store_name", "barangay", "city", "pool",
-                             "last_delivered_date", "_never_visited", "score"]].copy()
+        cols = ["rank", "store_name", "barangay", "city", "pool",
+                "last_delivered_date", "_never_visited", "score"]
+        if "username" in daily_list.columns:
+            cols.append("username")
+        table = daily_list[cols].copy()
         table["Days Since Last Order"] = table["last_delivered_date"].apply(_days_since_label)
         table["Never Visited"] = table["_never_visited"].apply(lambda x: "Yes" if x == 1.0 else "No")
         table["score"] = table["score"].round(2)
         table = table.drop(columns=["last_delivered_date", "_never_visited"])
-        table.columns = ["Rank", "Store Name", "Barangay", "City", "Pool",
-                         "Score", "Days Since Last Order", "Never Visited"]
-        table = table[["Rank", "Store Name", "Barangay", "City", "Pool",
-                        "Never Visited", "Days Since Last Order", "Score"]]
+        display_cols = ["Rank", "Store Name", "Barangay", "City", "Pool",
+                        "Never Visited", "Days Since Last Order", "Score"]
+        rename_map = {"rank": "Rank", "store_name": "Store Name", "barangay": "Barangay",
+                      "city": "City", "pool": "Pool", "score": "Score"}
+        if "username" in table.columns:
+            rename_map["username"] = "Username"
+            display_cols.append("Username")
+        table = table.rename(columns=rename_map)[display_cols]
         table = table.sort_values("Rank").reset_index(drop=True)
 
         st.dataframe(table, height=400, use_container_width=True)
