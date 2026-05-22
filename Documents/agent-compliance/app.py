@@ -167,16 +167,29 @@ def score_p30d(pool: pd.DataFrame) -> pd.DataFrame:
 # Store selector — 70:30 split with cross-pool backfill
 # ---------------------------------------------------------------------------
 
-def select_stores(new_revival: pd.DataFrame, p30d: pd.DataFrame, target: int = 30) -> pd.DataFrame:
-    """Pick top `target` stores by score across both pools — no ratio enforced."""
+def select_stores(new_revival: pd.DataFrame, p30d: pd.DataFrame, target: int = 30, nr_ratio: float = 0.70) -> pd.DataFrame:
+    """Pick `target` stores using configurable ratio with cross-pool backfill."""
+    nr_target = round(target * nr_ratio)
+    p30_target = target - nr_target
+
     nr_pool = new_revival.copy()
     nr_pool["pool"] = "New/Revival"
     p30_pool = p30d.copy()
     p30_pool["pool"] = "P30D"
 
-    combined = pd.concat([nr_pool, p30_pool], ignore_index=True)
+    nr_pick = nr_pool.head(nr_target)
+    p30_pick = p30_pool.head(p30_target)
+
+    if len(nr_pick) < nr_target:
+        extra = p30_pool.iloc[p30_target:p30_target + (nr_target - len(nr_pick))]
+        p30_pick = pd.concat([p30_pick, extra], ignore_index=True)
+
+    if len(p30_pick) < p30_target:
+        extra = nr_pool.iloc[nr_target:nr_target + (p30_target - len(p30_pick))]
+        nr_pick = pd.concat([nr_pick, extra], ignore_index=True)
+
+    combined = pd.concat([nr_pick, p30_pick], ignore_index=True)
     combined = combined.drop_duplicates(subset=["store_name", "lat", "long"])
-    combined = combined.sort_values("score", ascending=False)
     return combined.head(target).reset_index(drop=True)
 
 
@@ -214,7 +227,7 @@ def optimize_route(selected: pd.DataFrame, all_gcu_stores: pd.DataFrame) -> pd.D
 # Streamlit app
 # ---------------------------------------------------------------------------
 
-def run_global_pipeline(df: pd.DataFrame) -> list[pd.DataFrame]:
+def run_global_pipeline(df: pd.DataFrame, nr_ratio: float = 0.70) -> list[pd.DataFrame]:
     """Return a list of geographically clustered beats across all GCUs.
 
     K = floor(total eligible stores / 30) clusters via KMeans on lat/long.
@@ -269,7 +282,7 @@ def run_global_pipeline(df: pd.DataFrame) -> list[pd.DataFrame]:
         p30d = score_p30d(p30d_raw) if not p30d_raw.empty else p30d_raw
 
         target = min(30, len(cluster_stores))
-        selected = select_stores(new_revival, p30d, target=target)
+        selected = select_stores(new_revival, p30d, target=target, nr_ratio=nr_ratio)
 
         if selected.empty:
             continue
@@ -347,10 +360,15 @@ def main():
     df = _filter_base(raw)
     st.success(f"Loaded {len(df)} stores from uploaded file.")
 
+    nr_pct = st.slider("New/Revival vs P30D ratio", min_value=50, max_value=100, value=70, step=5,
+                        format="%d%% New/Revival")
+    nr_ratio = nr_pct / 100
+
     if st.button("Generate All Beats"):
-        beats = run_global_pipeline(df)
+        beats = run_global_pipeline(df, nr_ratio=nr_ratio)
         st.session_state["beats"] = beats
-        st.success(f"Generated {len(beats)} beat(s) across all GCUs")
+        st.session_state["nr_ratio"] = nr_ratio
+        st.success(f"Generated {len(beats)} beat(s) — {nr_pct}% New/Revival / {100 - nr_pct}% P30D")
 
     if "beats" in st.session_state:
         beats = st.session_state["beats"]
