@@ -68,3 +68,16 @@
   - Git root is /Users/andrew (not the project dir), so files commit under Documents/agent-compliance/
   - Streamlit Cloud main file path must be set to Documents/agent-compliance/app.py
 ---
+
+## 2026-05-22 - US-011
+- Replaced iterative pool-slicing in run_pipeline() with KMeans geographic clustering
+- K = ceil(eligible_store_count / 30) computed per GCU; sklearn KMeans clusters stores by lat/long
+- Each cluster scored independently (70:30 split preserved via select_stores with dynamic target)
+- Extracted _split_pools_from_df() helper so split_pools() and the new cluster loop share logic
+- Route optimizer still uses full GCU centroid for each beat's starting point
+- Files changed: app.py, prd.json, progress.txt
+- **Learnings for future iterations:**
+  - KMeans on lat/long produces geographically contiguous zones naturally — no crossing routes between beats
+  - Keeping the same beats list[DataFrame] interface meant zero UI changes needed
+  - python3 -m py_compile works for syntax check even without the venv's streamlit installed
+---

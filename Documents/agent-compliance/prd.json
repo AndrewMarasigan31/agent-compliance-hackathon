@@ -168,6 +168,25 @@
       "priority": 10,
       "passes": true,
       "notes": "Branch pushed to AndrewMarasigan31/agent-compliance-hackathon. Streamlit Cloud deployment requires manual setup: connect repo, set main file path to Documents/agent-compliance/app.py, branch ralph/agent-compliance-store-selection."
+    },
+    {
+      "id": "US-011",
+      "title": "Geographic clustering for beat generation",
+      "description": "As a supervisor, I want beats to be geographically contiguous so agents cover one zone per day without criss-crossing the GCU.",
+      "acceptanceCriteria": [
+        "Number of beats (K) is computed as ceil(eligible_store_count / 30) per GCU",
+        "K-means clusters stores by lat/long into K geographic zones using sklearn KMeans",
+        "Each zone becomes one beat — stores within the zone are sorted by score descending, then routed via nearest-neighbor",
+        "Each beat is ranked 1–30 (or 1–N for the last beat if stores don't divide evenly into 30)",
+        "No store appears in more than one beat",
+        "The 70:30 New/Revival vs P30D split is preserved within each zone's scoring",
+        "All-beats map view shows geographically contiguous zones with no crossing routes",
+        "Existing UI (beat selector, toggle, table, CSV export) works unchanged",
+        "GitHub issue #11 closed with comment linking to the commit"
+      ],
+      "priority": 11,
+      "passes": true,
+      "notes": ""
     }
   ]
 }
