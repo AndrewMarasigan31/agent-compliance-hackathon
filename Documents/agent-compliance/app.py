@@ -404,8 +404,9 @@ def main():
 
         cols = ["rank", "store_name", "barangay", "city", "pool",
                 "last_delivered_date", "_never_visited", "score"]
-        if "username" in daily_list.columns:
-            cols.append("username")
+        for col in ["username", "gcu"]:
+            if col in daily_list.columns:
+                cols.append(col)
         table = daily_list[cols].copy()
         table["Days Since Last Order"] = table["last_delivered_date"].apply(_days_since_label)
         table["Never Visited"] = table["_never_visited"].apply(lambda x: "Yes" if x == 1.0 else "No")
@@ -414,11 +415,15 @@ def main():
         rename_map = {"rank": "Rank", "store_name": "Store Name", "barangay": "Barangay",
                       "city": "City", "pool": "Pool", "score": "Score", "username": "Username"}
         table = table.rename(columns=rename_map)
+        if "gcu" in table.columns:
+            table = table.rename(columns={"gcu": "GCU"})
         display_cols = ["Rank", "Store Name"]
         if "Username" in table.columns:
             display_cols.append("Username")
+        if "GCU" in table.columns:
+            display_cols.append("GCU")
         display_cols += ["Barangay", "City", "Pool", "Never Visited", "Days Since Last Order", "Score"]
-        table = table[display_cols]
+        table = table[[c for c in display_cols if c in table.columns]]
         table = table.sort_values("Rank").reset_index(drop=True)
 
         st.dataframe(table, height=400, use_container_width=True)
