@@ -411,14 +411,14 @@ def main():
         table["Never Visited"] = table["_never_visited"].apply(lambda x: "Yes" if x == 1.0 else "No")
         table["score"] = table["score"].round(2)
         table = table.drop(columns=["last_delivered_date", "_never_visited"])
+        rename_map = {"rank": "Rank", "store_name": "Store Name", "barangay": "Barangay",
+                      "city": "City", "pool": "Pool", "score": "Score", "username": "Username"}
+        table = table.rename(columns=rename_map)
         display_cols = ["Rank", "Store Name", "Barangay", "City", "Pool",
                         "Never Visited", "Days Since Last Order", "Score"]
-        rename_map = {"rank": "Rank", "store_name": "Store Name", "barangay": "Barangay",
-                      "city": "City", "pool": "Pool", "score": "Score"}
-        if "username" in table.columns:
-            rename_map["username"] = "Username"
+        if "Username" in table.columns:
             display_cols.append("Username")
-        table = table.rename(columns=rename_map)[display_cols]
+        table = table[display_cols]
         table = table.sort_values("Rank").reset_index(drop=True)
 
         st.dataframe(table, height=400, use_container_width=True)
