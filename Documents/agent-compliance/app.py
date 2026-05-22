@@ -44,9 +44,9 @@ def _apply_hard_exclusions(df: pd.DataFrame) -> pd.DataFrame:
 def _split_pools_from_df(cluster_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Split a pre-filtered DataFrame into (new_revival, p30d) pools."""
     days_since = (TODAY - cluster_df["last_delivered_date"]).dt.days
-    # New/Revival: never ordered OR 60–365 days churned
+    # New/Revival: never ordered OR 60–730 days churned
     new_revival = cluster_df[
-        cluster_df["last_delivered_date"].isna() | ((days_since >= 60) & (days_since <= 365))
+        cluster_df["last_delivered_date"].isna() | ((days_since >= 60) & (days_since <= 730))
     ].copy()
     p30d = cluster_df[(days_since >= 31) & (days_since < 60)].copy()
     return new_revival.reset_index(drop=True), p30d.reset_index(drop=True)
@@ -406,7 +406,7 @@ def main():
 | Nearby store density (2km radius) | 20% |
 | Delivery day coming soon | 15% |
 
-Scope: never-ordered OR 60–365 days churned. Stores with 5+ visits and 0 orders excluded.
+Scope: never-ordered OR 60–730 days churned. Stores with 5+ visits and 0 orders excluded.
 All inputs normalized 0–1 before weighting.
 """)
             with col2:
