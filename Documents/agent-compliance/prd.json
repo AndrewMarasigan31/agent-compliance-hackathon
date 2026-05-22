@@ -206,6 +206,25 @@
       "priority": 12,
       "passes": true,
       "notes": ""
+    },
+    {
+      "id": "US-013",
+      "title": "Scoring system overhaul — recency-first with hard exclusions",
+      "description": "As a supervisor, I want the scoring system to prioritize recently churned stores (warmer leads) and exclude stores that have repeatedly failed to convert.",
+      "acceptanceCriteria": [
+        "Exclude stores with number_of_visits >= 5 AND no_delivered_orders == 0 before scoring",
+        "New/Revival pool capped at 60–365 days churned — exclude stores churned more than 365 days ago (never-ordered stores still included)",
+        "New/Revival formula: 0.35 × never_visited + 0.30 × (1 - n_days) + 0.20 × cluster_density + 0.15 × delivery_proximity",
+        "churn_tier and attempt_penalty factors removed from New/Revival scoring",
+        "days_since direction flipped for New/Revival — lower days = higher score",
+        "P30D formula: 0.40 × order_frequency + 0.35 × delivery_proximity + 0.25 × (1 - n_days)",
+        "n_recency removed from P30D scoring",
+        "All existing UI (beat selector, map, table, CSV export) works unchanged",
+        "GitHub issue #13 closed with comment linking to the commit"
+      ],
+      "priority": 13,
+      "passes": true,
+      "notes": ""
     }
   ]
 }
