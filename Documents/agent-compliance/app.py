@@ -4,6 +4,7 @@ import folium
 import pandas as pd
 import streamlit as st
 from datetime import datetime, timedelta
+from sklearn.cluster import KMeans
 from streamlit_folium import st_folium
 
 CSV_PATH = os.path.join(os.path.dirname(__file__), "store_leads.csv")
@@ -34,19 +35,17 @@ def load_and_filter() -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
+def _split_pools_from_df(cluster_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Split a pre-filtered DataFrame into (new_revival, p30d) pools."""
+    days_since = (TODAY - cluster_df["last_delivered_date"]).dt.days
+    new_revival = cluster_df[cluster_df["last_delivered_date"].isna() | (days_since >= 60)].copy()
+    p30d = cluster_df[(days_since >= 31) & (days_since < 60)].copy()
+    return new_revival.reset_index(drop=True), p30d.reset_index(drop=True)
+
+
 def split_pools(df: pd.DataFrame, gcu: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Return (new_revival_pool, p30d_pool) for the given GCU."""
-    gcu_df = df[df["gcu"] == gcu].copy()
-
-    days_since = (TODAY - gcu_df["last_delivered_date"]).dt.days
-
-    # New/Revival: never ordered (null) OR 60+ days since last delivery
-    new_revival = gcu_df[gcu_df["last_delivered_date"].isna() | (days_since >= 60)].copy()
-
-    # P30D: 31–60 days since last delivery
-    p30d = gcu_df[(days_since >= 31) & (days_since < 60)].copy()
-
-    return new_revival.reset_index(drop=True), p30d.reset_index(drop=True)
+    return _split_pools_from_df(df[df["gcu"] == gcu].copy())
 
 
 # ---------------------------------------------------------------------------
@@ -230,32 +229,42 @@ def optimize_route(selected: pd.DataFrame, all_gcu_stores: pd.DataFrame) -> pd.D
 # ---------------------------------------------------------------------------
 
 def run_pipeline(df: pd.DataFrame, gcu: str) -> list[pd.DataFrame]:
-    """Return a list of beats (each a 30-store DataFrame ranked 1–30) for the GCU."""
-    all_gcu_stores = df[df["gcu"] == gcu]
-    remaining = df[df["gcu"] == gcu].copy()
-    beats = []
+    """Return a list of geographically clustered beats for the GCU.
 
-    while True:
-        new_revival_raw, p30d_raw = split_pools(remaining, gcu)
-        if new_revival_raw.empty and p30d_raw.empty:
-            break
+    K = ceil(eligible_store_count / 30) clusters via KMeans on lat/long.
+    Each cluster is independently scored and routed (70:30 split preserved).
+    """
+    all_gcu_stores = df[df["gcu"] == gcu].copy()
+    if all_gcu_stores.empty:
+        return []
+
+    n = len(all_gcu_stores)
+    K = math.ceil(n / 30)
+
+    if K <= 1:
+        all_gcu_stores["_cluster"] = 0
+        K = 1
+    else:
+        coords = all_gcu_stores[["lat", "long"]].values
+        kmeans = KMeans(n_clusters=K, random_state=42, n_init=10)
+        all_gcu_stores["_cluster"] = kmeans.fit_predict(coords)
+
+    beats = []
+    for cluster_id in range(K):
+        cluster_stores = all_gcu_stores[all_gcu_stores["_cluster"] == cluster_id].copy()
+        new_revival_raw, p30d_raw = _split_pools_from_df(cluster_stores)
 
         new_revival = score_new_revival(new_revival_raw) if not new_revival_raw.empty else new_revival_raw
         p30d = score_p30d(p30d_raw) if not p30d_raw.empty else p30d_raw
-        selected = select_stores(new_revival, p30d)
+
+        target = min(30, len(cluster_stores))
+        selected = select_stores(new_revival, p30d, target=target)
 
         if selected.empty:
-            break
+            continue
 
         beat = optimize_route(selected, all_gcu_stores)
         beats.append(beat)
-
-        # Remove selected stores from remaining pool
-        used_idx = selected.index if hasattr(selected, 'index') else []
-        used_keys = set(zip(selected["lat"], selected["long"]))
-        remaining = remaining[
-            ~remaining.apply(lambda r: (r["lat"], r["long"]) in used_keys, axis=1)
-        ].reset_index(drop=True)
 
     return beats
 
