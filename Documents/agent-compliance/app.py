@@ -13,26 +13,21 @@ CLOSED_REASONS = {"Permanently Closed", "Temporarily Closed", "Wala ang may ari"
 EXCLUDED_STATUSES = {"pending", "dispatched"}
 
 
-@st.cache_data
-def load_and_filter() -> pd.DataFrame:
-    df = pd.read_csv(CSV_PATH)
-
-    df["last_delivered_date"] = pd.to_datetime(df["last_delivered_date"], errors="coerce")
-    df["visit_date"] = pd.to_datetime(df["visit_date"], errors="coerce")
-
-    # Exclude pending/dispatched orders
+def _filter_base(df: pd.DataFrame) -> pd.DataFrame:
     df = df[~df["latest_order_status"].isin(EXCLUDED_STATUSES)]
-
-    # Exclude closed stores
-    closed_mask = df["bakit hindi umorder si customer?"].isin(CLOSED_REASONS)
-    df = df[~closed_mask]
-
-    # Exclude stores visited in the last 7 days
+    df = df[~df["bakit hindi umorder si customer?"].isin(CLOSED_REASONS)]
     cutoff = TODAY - timedelta(days=7)
     visited_recently = df["visit_date"].notna() & (df["visit_date"] >= cutoff)
     df = df[~visited_recently]
-
     return df.reset_index(drop=True)
+
+
+@st.cache_data
+def load_and_filter() -> pd.DataFrame:
+    df = pd.read_csv(CSV_PATH)
+    df["last_delivered_date"] = pd.to_datetime(df["last_delivered_date"], errors="coerce")
+    df["visit_date"] = pd.to_datetime(df["visit_date"], errors="coerce")
+    return _filter_base(df)
 
 
 def _apply_hard_exclusions(df: pd.DataFrame) -> pd.DataFrame:
@@ -357,7 +352,15 @@ def main():
     st.set_page_config(page_title="Agent Compliance — Daily Store List", layout="wide")
     st.title("Agent Compliance — Daily Store List")
 
-    df = load_and_filter()
+    uploaded = st.file_uploader("Upload store leads CSV (optional — uses default if not uploaded)", type="csv")
+    if uploaded is not None:
+        raw = pd.read_csv(uploaded)
+        raw["last_delivered_date"] = pd.to_datetime(raw["last_delivered_date"], errors="coerce")
+        raw["visit_date"] = pd.to_datetime(raw["visit_date"], errors="coerce")
+        df = _filter_base(raw)
+        st.success(f"Loaded {len(df)} stores from uploaded file.")
+    else:
+        df = load_and_filter()
 
     if st.button("Generate All Beats"):
         beats = run_global_pipeline(df)
