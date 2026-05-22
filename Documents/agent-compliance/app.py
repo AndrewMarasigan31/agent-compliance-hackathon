@@ -352,15 +352,16 @@ def main():
     st.set_page_config(page_title="Agent Compliance — Daily Store List", layout="wide")
     st.title("Agent Compliance — Daily Store List")
 
-    uploaded = st.file_uploader("Upload store leads CSV (optional — uses default if not uploaded)", type="csv")
-    if uploaded is not None:
-        raw = pd.read_csv(uploaded)
-        raw["last_delivered_date"] = pd.to_datetime(raw["last_delivered_date"], errors="coerce")
-        raw["visit_date"] = pd.to_datetime(raw["visit_date"], errors="coerce")
-        df = _filter_base(raw)
-        st.success(f"Loaded {len(df)} stores from uploaded file.")
-    else:
-        df = load_and_filter()
+    uploaded = st.file_uploader("Upload store leads CSV", type="csv")
+    if uploaded is None:
+        st.info("Please upload a store leads CSV to get started.")
+        return
+
+    raw = pd.read_csv(uploaded)
+    raw["last_delivered_date"] = pd.to_datetime(raw["last_delivered_date"], errors="coerce")
+    raw["visit_date"] = pd.to_datetime(raw["visit_date"], errors="coerce")
+    df = _filter_base(raw)
+    st.success(f"Loaded {len(df)} stores from uploaded file.")
 
     if st.button("Generate All Beats"):
         beats = run_global_pipeline(df)
