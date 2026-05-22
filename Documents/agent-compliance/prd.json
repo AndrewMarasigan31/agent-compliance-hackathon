@@ -187,6 +187,25 @@
       "priority": 11,
       "passes": true,
       "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "Geography-first beat generation across all GCUs",
+      "description": "As a supervisor, I want beats generated from global geographic clustering across all stores regardless of GCU boundaries, so agents visit stores that are physically close together.",
+      "acceptanceCriteria": [
+        "All eligible stores across all GCUs are clustered together by lat/long using K-means, where K = ceil(total eligible stores / 30)",
+        "Each cluster becomes one beat — stores within the cluster are scored with 70:30 split applied, then routed via nearest-neighbor",
+        "Each beat is ranked 1–30 (or 1–N for the last beat)",
+        "No store appears in more than one beat",
+        "UI removes the GCU dropdown — replaced with a single 'Generate All Beats' button",
+        "Beat selector dropdown (Beat 1, Beat 2, ...) lets supervisor browse all beats",
+        "Each beat's map, table, and CSV export work unchanged",
+        "'Show all beats' toggle shows all geographic clusters on one map with distinct colors",
+        "GitHub issue #12 closed with comment linking to the commit"
+      ],
+      "priority": 12,
+      "passes": true,
+      "notes": ""
     }
   ]
 }
