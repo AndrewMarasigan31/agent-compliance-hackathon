@@ -228,30 +228,31 @@ def optimize_route(selected: pd.DataFrame, all_gcu_stores: pd.DataFrame) -> pd.D
 # Streamlit app
 # ---------------------------------------------------------------------------
 
-def run_pipeline(df: pd.DataFrame, gcu: str) -> list[pd.DataFrame]:
-    """Return a list of geographically clustered beats for the GCU.
+def run_global_pipeline(df: pd.DataFrame) -> list[pd.DataFrame]:
+    """Return a list of geographically clustered beats across all GCUs.
 
-    K = ceil(eligible_store_count / 30) clusters via KMeans on lat/long.
+    K = ceil(total eligible stores / 30) clusters via KMeans on lat/long.
     Each cluster is independently scored and routed (70:30 split preserved).
+    No store appears in more than one beat.
     """
-    all_gcu_stores = df[df["gcu"] == gcu].copy()
-    if all_gcu_stores.empty:
+    all_stores = df.copy()
+    if all_stores.empty:
         return []
 
-    n = len(all_gcu_stores)
+    n = len(all_stores)
     K = math.ceil(n / 30)
 
     if K <= 1:
-        all_gcu_stores["_cluster"] = 0
+        all_stores["_cluster"] = 0
         K = 1
     else:
-        coords = all_gcu_stores[["lat", "long"]].values
+        coords = all_stores[["lat", "long"]].values
         kmeans = KMeans(n_clusters=K, random_state=42, n_init=10)
-        all_gcu_stores["_cluster"] = kmeans.fit_predict(coords)
+        all_stores["_cluster"] = kmeans.fit_predict(coords)
 
     beats = []
     for cluster_id in range(K):
-        cluster_stores = all_gcu_stores[all_gcu_stores["_cluster"] == cluster_id].copy()
+        cluster_stores = all_stores[all_stores["_cluster"] == cluster_id].copy()
         new_revival_raw, p30d_raw = _split_pools_from_df(cluster_stores)
 
         new_revival = score_new_revival(new_revival_raw) if not new_revival_raw.empty else new_revival_raw
@@ -263,7 +264,7 @@ def run_pipeline(df: pd.DataFrame, gcu: str) -> list[pd.DataFrame]:
         if selected.empty:
             continue
 
-        beat = optimize_route(selected, all_gcu_stores)
+        beat = optimize_route(selected, cluster_stores)
         beats.append(beat)
 
     return beats
@@ -327,19 +328,13 @@ def main():
 
     df = load_and_filter()
 
-    gcus = sorted(df["gcu"].dropna().unique().tolist())
-    selected_gcu = st.selectbox("Select GCU", gcus)
-
-    if st.button("Generate List"):
-        beats = run_pipeline(df, selected_gcu)
+    if st.button("Generate All Beats"):
+        beats = run_global_pipeline(df)
         st.session_state["beats"] = beats
-        st.session_state["selected_gcu"] = selected_gcu
-        st.success(f"Generated {len(beats)} beat(s) for {selected_gcu}")
+        st.success(f"Generated {len(beats)} beat(s) across all GCUs")
 
-    if "beats" in st.session_state and st.session_state.get("selected_gcu") == selected_gcu:
+    if "beats" in st.session_state:
         beats = st.session_state["beats"]
-        gcu = st.session_state["selected_gcu"]
-        all_gcu_stores = df[df["gcu"] == gcu]
 
         beat_labels = [f"Beat {i+1}" for i in range(len(beats))]
         col_beat, col_toggle = st.columns([3, 1])
@@ -353,9 +348,9 @@ def main():
         beat_color = BEAT_COLORS[beat_idx % len(BEAT_COLORS)]
 
         if show_all:
-            m = build_all_beats_map(beats, all_gcu_stores)
+            m = build_all_beats_map(beats, df)
         else:
-            m = build_map(daily_list, all_gcu_stores, color=beat_color)
+            m = build_map(daily_list, daily_list, color=beat_color)
         st_folium(m, width="100%", height=500)
 
         # Store table
@@ -410,7 +405,7 @@ All inputs normalized 0–1 before weighting.
         st.download_button(
             label=f"Download {selected_beat_label} CSV",
             data=csv_bytes,
-            file_name=f"{gcu}_{selected_beat_label.replace(' ', '_')}_daily_list.csv",
+            file_name=f"{selected_beat_label.replace(' ', '_')}_daily_list.csv",
             mime="text/csv",
         )
 
