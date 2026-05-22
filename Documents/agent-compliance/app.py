@@ -228,7 +228,8 @@ def optimize_route(selected: pd.DataFrame, all_gcu_stores: pd.DataFrame) -> pd.D
 def run_global_pipeline(df: pd.DataFrame) -> list[pd.DataFrame]:
     """Return a list of geographically clustered beats across all GCUs.
 
-    K = ceil(total eligible stores / 30) clusters via KMeans on lat/long.
+    K = floor(total eligible stores / 30) clusters via KMeans on lat/long.
+    Each cluster has at least 30 stores. Remainder is distributed across beats.
     Each cluster is independently scored and routed (70:30 split preserved).
     No store appears in more than one beat.
     """
@@ -237,7 +238,7 @@ def run_global_pipeline(df: pd.DataFrame) -> list[pd.DataFrame]:
         return []
 
     n = len(all_stores)
-    K = math.ceil(n / 30)
+    K = max(1, math.floor(n / 30))
 
     if K <= 1:
         all_stores["_cluster"] = 0
