@@ -466,7 +466,7 @@ All inputs normalized 0–1 before weighting.
 """)
 
         # CSV export
-        csv_cols = ["Beat", "rank", "store_name", "barangay", "city", "gcu", "lat", "long",
+        csv_cols = ["Beat", "rank", "store_name", "username", "barangay", "city", "gcu", "lat", "long",
                     "last_delivered_date", "no_delivered_orders", "delivery_days", "pool"]
         export_df = daily_list[[c for c in csv_cols if c in daily_list.columns]]
         if selected_beat_label != "All":
