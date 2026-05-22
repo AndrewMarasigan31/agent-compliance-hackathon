@@ -35,10 +35,19 @@ def load_and_filter() -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
+def _apply_hard_exclusions(df: pd.DataFrame) -> pd.DataFrame:
+    """Exclude stores with >= 5 visits and zero delivered orders."""
+    mask = (df["number_of_visits"].fillna(0) >= 5) & (df["no_delivered_orders"].fillna(0) == 0)
+    return df[~mask].reset_index(drop=True)
+
+
 def _split_pools_from_df(cluster_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Split a pre-filtered DataFrame into (new_revival, p30d) pools."""
     days_since = (TODAY - cluster_df["last_delivered_date"]).dt.days
-    new_revival = cluster_df[cluster_df["last_delivered_date"].isna() | (days_since >= 60)].copy()
+    # New/Revival: never ordered OR 60–365 days churned
+    new_revival = cluster_df[
+        cluster_df["last_delivered_date"].isna() | ((days_since >= 60) & (days_since <= 365))
+    ].copy()
     p30d = cluster_df[(days_since >= 31) & (days_since < 60)].copy()
     return new_revival.reset_index(drop=True), p30d.reset_index(drop=True)
 
@@ -102,36 +111,25 @@ def _minmax(series: pd.Series) -> pd.Series:
 def score_new_revival(pool: pd.DataFrame) -> pd.DataFrame:
     df = pool.copy()
 
-    days_since = (TODAY - df["last_delivered_date"]).dt.days.fillna((TODAY - pd.Timestamp("1900-01-01")).days)
-
-    # churn_tier: 2=never ordered, 1=60+ days, 0=approaching 60
-    def churn_tier(row):
-        if pd.isna(row["last_delivered_date"]):
-            return 2
-        d = (TODAY - row["last_delivered_date"]).days
-        return 1 if d >= 60 else 0
-    df["_churn_tier"] = df.apply(churn_tier, axis=1)
+    # Never-ordered stores get days_since=0 (below range), boosting (1 - n_days)
+    days_since = (TODAY - df["last_delivered_date"]).dt.days.fillna(0)
 
     df["_never_visited"] = (df["number_of_visits"].isna() | (df["number_of_visits"] == 0)).astype(float)
     df["_cluster_density"] = _cluster_density(df)
     df["_delivery_proximity"] = df["delivery_days"].apply(
         lambda x: max(0.0, (7 - _days_until_next_delivery(x)) / 6)
     )
-    df["_attempt_penalty"] = df["number_of_visits"].fillna(0)
 
     n_days = _minmax(days_since)
-    n_churn = _minmax(df["_churn_tier"].astype(float))
     n_cluster = _minmax(df["_cluster_density"].astype(float))
     n_delivery = _minmax(df["_delivery_proximity"])
-    n_penalty = _minmax(df["_attempt_penalty"])
 
+    # Lower days_since = higher score (recently churned = warmer lead)
     df["score"] = (
-        0.30 * n_days
-        + 0.25 * n_churn
-        + 0.20 * df["_never_visited"]
-        + 0.15 * n_cluster
-        + 0.05 * n_delivery
-        - 0.05 * n_penalty
+        0.35 * df["_never_visited"]
+        + 0.30 * (1.0 - n_days)
+        + 0.20 * n_cluster
+        + 0.15 * n_delivery
     )
 
     return df.sort_values("score", ascending=False).reset_index(drop=True)
@@ -144,19 +142,17 @@ def score_p30d(pool: pd.DataFrame) -> pd.DataFrame:
     df["_delivery_proximity"] = df["delivery_days"].apply(
         lambda x: max(0.0, (7 - _days_until_next_delivery(x)) / 6)
     )
-    df["_churn_tier"] = 0
     df["_never_visited"] = (df["number_of_visits"].isna() | (df["number_of_visits"] == 0)).astype(float)
 
     n_orders = _minmax(df["no_delivered_orders"].fillna(0).astype(float))
     n_days = _minmax(days_since)
     n_delivery = _minmax(df["_delivery_proximity"])
-    n_recency = 1.0 - n_days
 
+    # Lower days_since = more recent = higher score
     df["score"] = (
-        0.30 * n_orders
-        + 0.30 * n_days
-        + 0.25 * n_delivery
-        + 0.15 * n_recency
+        0.40 * n_orders
+        + 0.35 * n_delivery
+        + 0.25 * (1.0 - n_days)
     )
 
     return df.sort_values("score", ascending=False).reset_index(drop=True)
@@ -236,7 +232,7 @@ def run_global_pipeline(df: pd.DataFrame) -> list[pd.DataFrame]:
     Each cluster is independently scored and routed (70:30 split preserved).
     No store appears in more than one beat.
     """
-    all_stores = df.copy()
+    all_stores = _apply_hard_exclusions(df.copy())
     if all_stores.empty:
         return []
 
@@ -360,20 +356,16 @@ def main():
                 return "Never"
             return int((TODAY - last_date).days)
 
-        def _churn_label(tier):
-            return {2: "Never Ordered", 1: "60+ Days", 0: "Approaching 60d"}.get(int(tier), "—")
-
         table = daily_list[["rank", "store_name", "barangay", "city", "pool",
-                             "last_delivered_date", "_churn_tier", "_never_visited", "score"]].copy()
+                             "last_delivered_date", "_never_visited", "score"]].copy()
         table["Days Since Last Order"] = table["last_delivered_date"].apply(_days_since_label)
-        table["Churn Depth"] = table["_churn_tier"].apply(_churn_label)
         table["Never Visited"] = table["_never_visited"].apply(lambda x: "Yes" if x == 1.0 else "No")
         table["score"] = table["score"].round(2)
-        table = table.drop(columns=["last_delivered_date", "_churn_tier", "_never_visited"])
+        table = table.drop(columns=["last_delivered_date", "_never_visited"])
         table.columns = ["Rank", "Store Name", "Barangay", "City", "Pool",
-                         "Score", "Days Since Last Order", "Churn Depth", "Never Visited"]
+                         "Score", "Days Since Last Order", "Never Visited"]
         table = table[["Rank", "Store Name", "Barangay", "City", "Pool",
-                        "Churn Depth", "Never Visited", "Days Since Last Order", "Score"]]
+                        "Never Visited", "Days Since Last Order", "Score"]]
         table = table.sort_values("Rank").reset_index(drop=True)
 
         st.dataframe(table, height=400, use_container_width=True)
@@ -385,13 +377,12 @@ def main():
                 st.markdown("""
 | Factor | Weight |
 |---|---|
-| Days since last order | 30% |
-| Churn depth (never > 60d > approaching) | 25% |
-| Never visited before | 20% |
-| Nearby store density (2km radius) | 15% |
-| Delivery day coming soon | 5% |
-| Repeat visit penalty | −5% |
+| Never visited before | 35% |
+| Recency (lower days = higher score) | 30% |
+| Nearby store density (2km radius) | 20% |
+| Delivery day coming soon | 15% |
 
+Scope: never-ordered OR 60–365 days churned. Stores with 5+ visits and 0 orders excluded.
 All inputs normalized 0–1 before weighting.
 """)
             with col2:
@@ -399,11 +390,11 @@ All inputs normalized 0–1 before weighting.
                 st.markdown("""
 | Factor | Weight |
 |---|---|
-| Order frequency | 30% |
-| Days since last order | 30% |
-| Delivery day coming soon | 25% |
-| Recency of last drop-off | 15% |
+| Order frequency | 40% |
+| Delivery day coming soon | 35% |
+| Recency (lower days = higher score) | 25% |
 
+Stores with 5+ visits and 0 orders excluded.
 All inputs normalized 0–1 before weighting.
 """)
 
