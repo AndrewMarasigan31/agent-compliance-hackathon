@@ -81,3 +81,15 @@
   - Keeping the same beats list[DataFrame] interface meant zero UI changes needed
   - python3 -m py_compile works for syntax check even without the venv's streamlit installed
 ---
+
+## 2026-05-22 - US-012
+- Added run_global_pipeline() that clusters ALL eligible stores across all GCUs with K = ceil(total / 30)
+- Replaced per-GCU run_pipeline() with global pipeline; optimize_route() uses cluster centroid (cluster_stores passed as second arg)
+- Removed GCU dropdown from main(); replaced "Generate List" button with "Generate All Beats"
+- build_map() called with daily_list as its own centroid source; build_all_beats_map() receives full df for centering
+- CSV filename changed from {gcu}_{beat}_daily_list.csv to {beat}_daily_list.csv (beats span GCUs)
+- Files changed: app.py, prd.json, progress.txt
+- **Learnings for future iterations:**
+  - Passing cluster_stores (not all_stores) to optimize_route gives a tighter centroid per beat, producing better local routes
+  - build_map centroid from daily_list itself works fine — the selected 30 stores are geographically contiguous by construction
+---
