@@ -354,6 +354,8 @@ def main():
         st.info("Please upload a store leads CSV to get started.")
         return
 
+    agent_name = st.text_input("Agent Name", placeholder="e.g. Juan dela Cruz")
+
     raw = pd.read_csv(uploaded)
     raw["last_delivered_date"] = pd.to_datetime(raw["last_delivered_date"], errors="coerce")
     raw["visit_date"] = pd.to_datetime(raw["visit_date"], errors="coerce")
@@ -368,10 +370,14 @@ def main():
         beats = run_global_pipeline(df, nr_ratio=nr_ratio)
         st.session_state["beats"] = beats
         st.session_state["nr_ratio"] = nr_ratio
+        st.session_state["agent_name"] = agent_name.strip() or "Agent"
         st.success(f"Generated {len(beats)} beat(s) — {nr_pct}% New/Revival / {100 - nr_pct}% P30D")
 
     if "beats" in st.session_state:
         beats = st.session_state["beats"]
+        saved_agent = st.session_state.get("agent_name", "Agent")
+
+        st.subheader(f"{saved_agent} — {len(beats)} Beat(s)")
 
         beat_labels = [f"Beat {i+1}" for i in range(len(beats))]
         col_beat, col_toggle = st.columns([3, 1])
@@ -446,7 +452,7 @@ All inputs normalized 0–1 before weighting.
         st.download_button(
             label=f"Download {selected_beat_label} CSV",
             data=csv_bytes,
-            file_name=f"{selected_beat_label.replace(' ', '_')}_daily_list.csv",
+            file_name=f"{saved_agent.replace(' ', '_')}_{selected_beat_label.replace(' ', '_')}_daily_list.csv",
             mime="text/csv",
         )
 
