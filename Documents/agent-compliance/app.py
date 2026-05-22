@@ -1,11 +1,12 @@
 import math
+import os
 import folium
 import pandas as pd
 import streamlit as st
 from datetime import datetime, timedelta
 from streamlit_folium import st_folium
 
-CSV_PATH = "store_leads.csv"
+CSV_PATH = os.path.join(os.path.dirname(__file__), "store_leads.csv")
 TODAY = pd.Timestamp(datetime.now().date())
 CLOSED_REASONS = {"Permanently Closed", "Temporarily Closed", "Wala ang may ari"}
 EXCLUDED_STATUSES = {"pending", "dispatched"}
