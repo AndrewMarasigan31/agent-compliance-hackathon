@@ -82,6 +82,19 @@
   - python3 -m py_compile works for syntax check even without the venv's streamlit installed
 ---
 
+## 2026-05-22 - US-013
+- Added _apply_hard_exclusions(): removes stores with number_of_visits >= 5 AND no_delivered_orders == 0
+- Updated _split_pools_from_df(): New/Revival now capped at 60–365 days (never-ordered stores still included via isna check)
+- Rewrote score_new_revival(): removed churn_tier and attempt_penalty; new formula 0.35×never_visited + 0.30×(1-n_days) + 0.20×cluster_density + 0.15×delivery_proximity; lower days = higher score
+- Rewrote score_p30d(): removed n_recency; new formula 0.40×order_frequency + 0.35×delivery_proximity + 0.25×(1-n_days)
+- Updated table display: removed Churn Depth column (no _churn_tier in new formulas)
+- Updated scoring explanation expander to reflect new weights and exclusion rules
+- Files changed: app.py, prd.json, progress.txt
+- **Learnings for future iterations:**
+  - For never-ordered stores with null last_delivered_date, fillna(0) for days_since gives them a below-range value that after (1-n_days) normalization actually boosts their score — natural since they're the warmest leads
+  - Removing columns from scored DataFrames requires updating all downstream table selectors in main()
+---
+
 ## 2026-05-22 - US-012
 - Added run_global_pipeline() that clusters ALL eligible stores across all GCUs with K = ceil(total / 30)
 - Replaced per-GCU run_pipeline() with global pipeline; optimize_route() uses cluster centroid (cluster_stores passed as second arg)
