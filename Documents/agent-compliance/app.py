@@ -248,8 +248,31 @@ def run_global_pipeline(df: pd.DataFrame) -> list[pd.DataFrame]:
         kmeans = KMeans(n_clusters=K, random_state=42, n_init=10)
         all_stores["_cluster"] = kmeans.fit_predict(coords)
 
+        # Merge undersized clusters (< 20 stores) into nearest cluster by centroid
+        MIN_CLUSTER_SIZE = 20
+        changed = True
+        while changed:
+            changed = False
+            sizes = all_stores["_cluster"].value_counts()
+            small = sizes[sizes < MIN_CLUSTER_SIZE].index.tolist()
+            if not small:
+                break
+            centroids = all_stores.groupby("_cluster")[["lat", "long"]].mean()
+            for cid in small:
+                if cid not in all_stores["_cluster"].values:
+                    continue
+                c = centroids.loc[cid]
+                others = centroids.drop(index=cid)
+                if others.empty:
+                    break
+                dists = others.apply(lambda r: _haversine_km(c["lat"], c["long"], r["lat"], r["long"]), axis=1)
+                nearest = dists.idxmin()
+                all_stores.loc[all_stores["_cluster"] == cid, "_cluster"] = nearest
+                changed = True
+
+    unique_clusters = sorted(all_stores["_cluster"].unique())
     beats = []
-    for cluster_id in range(K):
+    for cluster_id in unique_clusters:
         cluster_stores = all_stores[all_stores["_cluster"] == cluster_id].copy()
         new_revival_raw, p30d_raw = _split_pools_from_df(cluster_stores)
 
