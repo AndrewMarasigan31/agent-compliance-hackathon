@@ -249,7 +249,7 @@ def run_global_pipeline(df: pd.DataFrame) -> list[pd.DataFrame]:
         all_stores["_cluster"] = kmeans.fit_predict(coords)
 
         # Merge undersized clusters (< 20 stores) into nearest cluster by centroid
-        MIN_CLUSTER_SIZE = 20
+        MIN_CLUSTER_SIZE = 30
         changed = True
         while changed:
             changed = False
