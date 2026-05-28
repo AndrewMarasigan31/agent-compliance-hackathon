@@ -58,10 +58,11 @@ def _apply_hard_exclusions(df: pd.DataFrame, cutoff_year: int | None = None) -> 
 def _split_pools_from_df(cluster_df: pd.DataFrame, cutoff_year: int | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Split a pre-filtered DataFrame into (new_revival, p30d) pools."""
     days_since = (TODAY - cluster_df["last_delivered_date"]).dt.days
-    dated_nr_mask = (days_since >= 60) & (days_since <= 730)
     if cutoff_year is not None:
         cutoff_date = pd.Timestamp(f"{cutoff_year}-01-01")
-        dated_nr_mask = dated_nr_mask & (cluster_df["last_delivered_date"] >= cutoff_date)
+        dated_nr_mask = (days_since >= 60) & (cluster_df["last_delivered_date"] >= cutoff_date)
+    else:
+        dated_nr_mask = days_since >= 60  # All time: no upper cap
     new_revival = cluster_df[
         cluster_df["last_delivered_date"].isna() | dated_nr_mask
     ].copy()
