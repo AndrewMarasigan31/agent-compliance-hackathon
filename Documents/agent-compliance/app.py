@@ -445,7 +445,8 @@ def main():
             return int((TODAY - last_date).days)
 
         cols = ["Beat", "rank", "store_name", "barangay", "city", "pool",
-                "last_delivered_date", "_never_visited", "score"]
+                "last_delivered_date", "_never_visited", "score",
+                "bakit hindi umorder si customer?", "number_of_visits", "visit_date"]
         for col in ["username", "gcu"]:
             if col in daily_list.columns:
                 cols.append(col)
@@ -453,16 +454,20 @@ def main():
         table["Days Since Last Order"] = table["last_delivered_date"].apply(_days_since_label)
         table["Never Visited"] = table["_never_visited"].apply(lambda x: "Yes" if x == 1.0 else "No")
         table["score"] = table["score"].round(2)
+        table["visit_date"] = pd.to_datetime(table["visit_date"], errors="coerce").dt.strftime("%Y-%m-%d").fillna("Never")
         table = table.drop(columns=["last_delivered_date", "_never_visited"])
         rename_map = {"rank": "Rank", "store_name": "Store Name", "barangay": "Barangay",
                       "city": "City", "pool": "Pool", "score": "Score",
-                      "username": "Username", "gcu": "GCU"}
+                      "username": "Username", "gcu": "GCU",
+                      "bakit hindi umorder si customer?": "Rejection Reason",
+                      "number_of_visits": "# Visits", "visit_date": "Last Visit Date"}
         table = table.rename(columns=rename_map)
         display_cols = ["Beat", "Rank", "Store Name"]
         for c in ["Username", "GCU"]:
             if c in table.columns:
                 display_cols.append(c)
-        display_cols += ["Barangay", "City", "Pool", "Never Visited", "Days Since Last Order", "Score"]
+        display_cols += ["Barangay", "City", "Pool", "Never Visited", "Days Since Last Order",
+                         "# Visits", "Last Visit Date", "Rejection Reason", "Score"]
         table = table[[c for c in display_cols if c in table.columns]]
         table = table.sort_values(["Beat", "Rank"]).reset_index(drop=True)
 
@@ -498,7 +503,8 @@ All inputs normalized 0–1 before weighting.
 
         # CSV export
         csv_cols = ["Beat", "rank", "store_name", "username", "barangay", "city", "gcu", "lat", "long",
-                    "last_delivered_date", "no_delivered_orders", "delivery_days", "pool"]
+                    "last_delivered_date", "no_delivered_orders", "delivery_days", "pool",
+                    "bakit hindi umorder si customer?", "number_of_visits", "visit_date"]
         export_df = daily_list[[c for c in csv_cols if c in daily_list.columns]]
         if selected_beat_label != "All":
             export_df = export_df.sort_values("rank")
