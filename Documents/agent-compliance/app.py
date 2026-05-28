@@ -37,7 +37,7 @@ def load_and_filter() -> pd.DataFrame:
     return _filter_base(df)
 
 
-def _apply_hard_exclusions(df: pd.DataFrame) -> pd.DataFrame:
+def _apply_hard_exclusions(df: pd.DataFrame, cutoff_year: int | None = None) -> pd.DataFrame:
     """Keep only stores eligible for scoring: correct day window, not hard-excluded."""
     # Remove repeat no-conversion stores
     mask = (df["number_of_visits"].fillna(0) >= 5) & (df["no_delivered_orders"].fillna(0) == 0)
@@ -45,9 +45,11 @@ def _apply_hard_exclusions(df: pd.DataFrame) -> pd.DataFrame:
 
     # Keep only stores in the eligible day windows
     days_since = (TODAY - df["last_delivered_date"]).dt.days
+    nr_cutoff_date = pd.Timestamp(f"{cutoff_year}-01-01") if cutoff_year is not None else None
+    nr_mask = (days_since >= 60) & (days_since <= 730) if nr_cutoff_date is None else (days_since >= 60) & (df["last_delivered_date"] >= nr_cutoff_date)
     eligible = (
         df["last_delivered_date"].isna()                          # never ordered
-        | ((days_since >= 60) & (days_since <= 730))              # New/Revival: 60–730 days
+        | nr_mask                                                 # New/Revival: 60d+ (year-filtered)
         | ((days_since >= 31) & (days_since < 60))                # P30D: 31–60 days
     )
     return df[eligible].reset_index(drop=True)
@@ -245,7 +247,7 @@ def run_global_pipeline(df: pd.DataFrame, nr_ratio: float = 0.70, cutoff_year: i
     Each cluster is independently scored and routed (70:30 split preserved).
     No store appears in more than one beat.
     """
-    all_stores = _apply_hard_exclusions(df.copy())
+    all_stores = _apply_hard_exclusions(df.copy(), cutoff_year=cutoff_year)
     if all_stores.empty:
         return []
 
