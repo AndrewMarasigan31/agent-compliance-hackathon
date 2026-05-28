@@ -9,8 +9,15 @@ from streamlit_folium import st_folium
 
 CSV_PATH = os.path.join(os.path.dirname(__file__), "store_leads.csv")
 TODAY = pd.Timestamp(datetime.now().date())
-CLOSED_REASONS = {"Permanently Closed", "Temporarily Closed", "Masikip ang Daan", "Duplicate Account"}
-EXCLUDED_STATUSES = {"pending", "dispatched"}
+CLOSED_REASONS = {
+    "Permanently Closed",
+    "Temporarily Closed",
+    "Hindi mahanap yung tindahan",
+    "Masikip ang Daan",
+    "Duplicate Account",
+    "Walang tindahan",
+}
+EXCLUDED_STATUSES = {"pending", "dispatched", "packed", "processing", "ready_to_redispatch"}
 
 
 def _filter_base(df: pd.DataFrame) -> pd.DataFrame:
