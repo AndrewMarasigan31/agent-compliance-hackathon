@@ -225,6 +225,25 @@
       "priority": 13,
       "passes": true,
       "notes": ""
+    },
+    {
+      "id": "US-014",
+      "title": "Last delivered date year filter for New/Revival pool",
+      "description": "As a supervisor, I want to control how far back the app looks for churned stores by selecting a cutoff year, so I can include older leads when needed.",
+      "acceptanceCriteria": [
+        "Year dropdown appears after CSV upload, before the Generate All Beats button",
+        "Options are dynamically derived from unique years in uploaded CSV's last_delivered_date column, sorted descending, plus 'All time' as the last option",
+        "Default selection is the year equivalent to 730 days ago from today",
+        "Selecting a year filters New/Revival pool to last_delivered_date >= Jan 1 of selected year",
+        "P30D pool (31–60 days) is unaffected by the year filter",
+        "Never-ordered stores (null last_delivered_date) are always included regardless of year filter",
+        "Selection is persisted in st.session_state alongside nr_ratio and agent_name",
+        "Existing CLOSED_REASONS exclusions (Permanently Closed, Temporarily Closed, Masikip ang Daan, Duplicate Account) remain unchanged",
+        "GitHub issue #14 closed with comment linking to the commit"
+      ],
+      "priority": 14,
+      "passes": true,
+      "notes": ""
     }
   ]
 }

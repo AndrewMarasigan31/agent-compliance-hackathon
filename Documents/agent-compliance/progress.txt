@@ -106,3 +106,16 @@
   - Passing cluster_stores (not all_stores) to optimize_route gives a tighter centroid per beat, producing better local routes
   - build_map centroid from daily_list itself works fine — the selected 30 stores are geographically contiguous by construction
 ---
+
+## 2026-05-28 - US-014
+- Added `cutoff_year` parameter to `_split_pools_from_df()`, `split_pools()`, and `run_global_pipeline()`
+- Year dropdown in main() after nr_ratio slider, before Generate button; options derived from unique years in uploaded CSV's last_delivered_date, sorted descending, plus 'All time'
+- Default selection = year equivalent to 730 days ago from today (2024)
+- Selecting a year filters New/Revival dated stores to last_delivered_date >= Jan 1 of that year; never-ordered (null) stores always included
+- P30D pool (31–60 days) unaffected by year filter
+- cutoff_year persisted in st.session_state alongside nr_ratio and agent_name
+- Files changed: app.py, prd.json, progress.txt
+- **Learnings for future iterations:**
+  - `(TODAY - pd.Timedelta(days=730)).year` cleanly computes the default cutoff year
+  - Adding a `cutoff_year=None` default to all affected functions keeps existing callers backward-compatible
+---
