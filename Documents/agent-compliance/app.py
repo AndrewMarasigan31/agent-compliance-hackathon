@@ -9,7 +9,7 @@ from streamlit_folium import st_folium
 
 CSV_PATH = os.path.join(os.path.dirname(__file__), "store_leads.csv")
 TODAY = pd.Timestamp(datetime.now().date())
-CLOSED_REASONS = {"Permanently Closed", "Temporarily Closed", "Wala ang may ari"}
+CLOSED_REASONS = {"Permanently Closed", "Temporarily Closed", "Masikip ang Daan", "Duplicate Account"}
 EXCLUDED_STATUSES = {"pending", "dispatched"}
 
 
@@ -46,20 +46,23 @@ def _apply_hard_exclusions(df: pd.DataFrame) -> pd.DataFrame:
     return df[eligible].reset_index(drop=True)
 
 
-def _split_pools_from_df(cluster_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _split_pools_from_df(cluster_df: pd.DataFrame, cutoff_year: int | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Split a pre-filtered DataFrame into (new_revival, p30d) pools."""
     days_since = (TODAY - cluster_df["last_delivered_date"]).dt.days
-    # New/Revival: never ordered OR 60–730 days churned
+    dated_nr_mask = (days_since >= 60) & (days_since <= 730)
+    if cutoff_year is not None:
+        cutoff_date = pd.Timestamp(f"{cutoff_year}-01-01")
+        dated_nr_mask = dated_nr_mask & (cluster_df["last_delivered_date"] >= cutoff_date)
     new_revival = cluster_df[
-        cluster_df["last_delivered_date"].isna() | ((days_since >= 60) & (days_since <= 730))
+        cluster_df["last_delivered_date"].isna() | dated_nr_mask
     ].copy()
     p30d = cluster_df[(days_since >= 31) & (days_since < 60)].copy()
     return new_revival.reset_index(drop=True), p30d.reset_index(drop=True)
 
 
-def split_pools(df: pd.DataFrame, gcu: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+def split_pools(df: pd.DataFrame, gcu: str, cutoff_year: int | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Return (new_revival_pool, p30d_pool) for the given GCU."""
-    return _split_pools_from_df(df[df["gcu"] == gcu].copy())
+    return _split_pools_from_df(df[df["gcu"] == gcu].copy(), cutoff_year=cutoff_year)
 
 
 # ---------------------------------------------------------------------------
@@ -227,7 +230,7 @@ def optimize_route(selected: pd.DataFrame, all_gcu_stores: pd.DataFrame) -> pd.D
 # Streamlit app
 # ---------------------------------------------------------------------------
 
-def run_global_pipeline(df: pd.DataFrame, nr_ratio: float = 0.70) -> list[pd.DataFrame]:
+def run_global_pipeline(df: pd.DataFrame, nr_ratio: float = 0.70, cutoff_year: int | None = None) -> list[pd.DataFrame]:
     """Return a list of geographically clustered beats across all GCUs.
 
     K = floor(total eligible stores / 30) clusters via KMeans on lat/long.
@@ -276,7 +279,7 @@ def run_global_pipeline(df: pd.DataFrame, nr_ratio: float = 0.70) -> list[pd.Dat
     beats = []
     for cluster_id in unique_clusters:
         cluster_stores = all_stores[all_stores["_cluster"] == cluster_id].copy()
-        new_revival_raw, p30d_raw = _split_pools_from_df(cluster_stores)
+        new_revival_raw, p30d_raw = _split_pools_from_df(cluster_stores, cutoff_year=cutoff_year)
 
         new_revival = score_new_revival(new_revival_raw) if not new_revival_raw.empty else new_revival_raw
         p30d = score_p30d(p30d_raw) if not p30d_raw.empty else p30d_raw
@@ -366,11 +369,29 @@ def main():
                         format="%d%% New/Revival")
     nr_ratio = nr_pct / 100
 
+    years_in_data = sorted(
+        df["last_delivered_date"].dropna().dt.year.unique().tolist(),
+        reverse=True,
+    )
+    year_options = [str(y) for y in years_in_data] + ["All time"]
+    default_year = (TODAY - pd.Timedelta(days=730)).year
+    default_idx = next(
+        (i for i, y in enumerate(year_options) if y == str(default_year)),
+        len(year_options) - 1,
+    )
+    selected_year_str = st.selectbox(
+        "New/Revival cutoff year (last delivered ≥ Jan 1 of selected year; never-ordered always included)",
+        year_options,
+        index=default_idx,
+    )
+    cutoff_year = None if selected_year_str == "All time" else int(selected_year_str)
+
     if st.button("Generate All Beats"):
-        beats = run_global_pipeline(df, nr_ratio=nr_ratio)
+        beats = run_global_pipeline(df, nr_ratio=nr_ratio, cutoff_year=cutoff_year)
         st.session_state["beats"] = beats
         st.session_state["nr_ratio"] = nr_ratio
         st.session_state["agent_name"] = agent_name.strip() or "Agent"
+        st.session_state["cutoff_year"] = cutoff_year
         st.success(f"Generated {len(beats)} beat(s) — {nr_pct}% New/Revival / {100 - nr_pct}% P30D")
 
     if "beats" in st.session_state:
