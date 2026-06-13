@@ -44,6 +44,8 @@ def extract_stamp() -> Image.Image:
 def apply_watermark(photo: Image.Image, stamp: Image.Image) -> Image.Image:
     """Composite stamp onto photo at bottom-right, scaled proportionally."""
     photo = photo.convert("RGB")
+    if stamp.mode != "RGBA":
+        stamp = stamp.convert("RGBA")
     pw, ph = photo.size
 
     # Scale stamp to match photo width ratio
@@ -53,8 +55,8 @@ def apply_watermark(photo: Image.Image, stamp: Image.Image) -> Image.Image:
     scaled = stamp.resize((target_w, target_h), Image.LANCZOS)
 
     # Bottom-right placement
-    x = pw - target_w - int(pw * RIGHT_MARGIN_RATIO)
-    y = ph - target_h - int(ph * BOTTOM_MARGIN_RATIO)
+    x = max(0, pw - target_w - int(pw * RIGHT_MARGIN_RATIO))
+    y = max(0, ph - target_h - int(ph * BOTTOM_MARGIN_RATIO))
 
     result = photo.copy()
     result.paste(scaled, (x, y), mask=scaled.split()[3])
