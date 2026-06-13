@@ -17,9 +17,9 @@ OUTPUT_ZIP = BASE / "SELECTS-WATERMARKED-20260613.zip"
 # Geometry constants derived from template analysis
 STAMP_Y1, STAMP_Y2 = 1240, 1310   # +/-5px padding around detected region 1247-1303
 STAMP_X1, STAMP_X2 = 888, 1040    # +/-10px padding around detected region 898-1030
-STAMP_WIDTH_RATIO = 0.122          # stamp width as fraction of photo width
-RIGHT_MARGIN_RATIO = 0.046         # right margin as fraction of photo width
-BOTTOM_MARGIN_RATIO = 0.035        # bottom margin as fraction of photo height
+STAMP_WIDTH_RATIO = 0.1407         # stamp width as fraction of photo width (152/1080)
+RIGHT_MARGIN_RATIO = 0.0370        # right margin as fraction of photo width (40/1080)
+BOTTOM_MARGIN_RATIO = 0.0296       # bottom margin as fraction of photo height (40/1350)
 JPEG_QUALITY = 95
 
 
@@ -37,6 +37,7 @@ def extract_stamp() -> Image.Image:
 
     stamp = Image.fromarray(rgba)
     stamp.save(STAMP_PNG)
+    print(f"Saved stamp to {STAMP_PNG}")
     return stamp
 
 
