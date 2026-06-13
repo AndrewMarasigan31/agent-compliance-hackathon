@@ -41,7 +41,53 @@ def extract_stamp() -> Image.Image:
     return stamp
 
 
+def apply_watermark(photo: Image.Image, stamp: Image.Image) -> Image.Image:
+    """Composite stamp onto photo at bottom-right, scaled proportionally."""
+    photo = photo.convert("RGB")
+    pw, ph = photo.size
+
+    # Scale stamp to match photo width ratio
+    target_w = int(pw * STAMP_WIDTH_RATIO)
+    sw, sh = stamp.size
+    target_h = int(target_w * sh / sw)
+    scaled = stamp.resize((target_w, target_h), Image.LANCZOS)
+
+    # Bottom-right placement
+    x = pw - target_w - int(pw * RIGHT_MARGIN_RATIO)
+    y = ph - target_h - int(ph * BOTTOM_MARGIN_RATIO)
+
+    result = photo.copy()
+    result.paste(scaled, (x, y), mask=scaled.split()[3])
+    return result
+
+
 if __name__ == "__main__":
+    import sys
+
     stamp = extract_stamp()
-    print(f"Stamp extracted: {stamp.size[0]}x{stamp.size[1]}px, "
-          f"{np.sum(np.array(stamp)[:,:,3] > 0)} opaque pixels")
+    print(f"Stamp: {stamp.size}, opaque={np.sum(np.array(stamp)[:,:,3] > 0)} px")
+
+    mode = sys.argv[1] if len(sys.argv) > 1 else "test"
+
+    if mode == "test":
+        # Test on up to 3 images from zip (try to get at least one landscape)
+        tested = 0
+        with zipfile.ZipFile(SOURCE_ZIP) as zf:
+            names = [n for n in zf.namelist() if n.lower().endswith(".jpg")]
+            for name in names[:5]:
+                with zf.open(name) as f:
+                    photo = Image.open(f)
+                    photo.load()
+                w, h = photo.size
+                orientation = "landscape" if w > h else "portrait"
+                result = apply_watermark(photo, stamp)
+                out_name = f"test_output_{orientation}_{Path(name).name}"
+                result.save(BASE / out_name, "JPEG", quality=JPEG_QUALITY)
+                print(f"  {name} ({w}x{h}, {orientation}) → {out_name}")
+                tested += 1
+                if tested >= 3:
+                    break
+        print(f"Test complete. Check {BASE}/ for test_output_*.jpg files.")
+
+    elif mode == "run":
+        process_all(stamp)
