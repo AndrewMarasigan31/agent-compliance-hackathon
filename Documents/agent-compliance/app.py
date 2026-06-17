@@ -223,6 +223,8 @@ def select_stores(new_revival: pd.DataFrame, p30d: pd.DataFrame, target: int = 3
     nr_pool["pool"] = "New/Revival"
     p30_pool = p30d.copy()
     p30_pool["pool"] = "P30D"
+    if "bucket" in p30_pool.columns:
+        p30_pool.loc[p30_pool["bucket"] == "Non Current Month Buyer", "pool"] = "Non Month Buyer"
 
     nr_pick = nr_pool.head(nr_target)
     p30_pick = p30_pool.head(p30_target)
