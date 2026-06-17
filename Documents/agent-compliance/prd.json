@@ -244,6 +244,27 @@
       "priority": 14,
       "passes": true,
       "notes": ""
+    },
+    {
+      "id": "US-015",
+      "title": "Non Current Month Buyer pool inclusion with P30D-first beat ratio",
+      "description": "As a supervisor, I want to optionally include Non Current Month Buyer stores in the P30D pool — and shift the beat composition to 30:70 (New/Revival:P30D) when I do — so agents prioritize warm leads who ordered last month.",
+      "acceptanceCriteria": [
+        "Checkbox 'Include Non-Current Month Buyers' appears at the top of the sidebar/controls, before the ratio slider",
+        "When checkbox is OFF: existing behavior unchanged — bucket 'Non Current Month Buyer' stores are excluded, ratio slider defaults to 70% New/Revival",
+        "When checkbox is ON: stores with bucket == 'Non Current Month Buyer' are added to the P30D pool before scoring",
+        "When checkbox is ON: ratio slider default shifts to 30% New/Revival (9 stores) / 70% P30D (21 stores)",
+        "Non Current Month Buyer stores score at the top of the P30D pool — add a 'ncmb_boost' binary flag (1 if bucket == 'Non Current Month Buyer', else 0) as a 0.30-weight factor in P30D scoring, reducing other P30D weights proportionally",
+        "Stores with bucket == 'Current Month Buyer' are always excluded regardless of checkbox (they already ordered this month)",
+        "Pool mapping uses the 'bucket' column when present to supplement date-based logic: 'No Delivered Order' → New/Revival, 'Churned (60+ Days)' → New/Revival, 'P30D No Delivery (NKA)' → P30D, 'Non Current Month Buyer' → P30D (if checkbox ON)",
+        "Checkbox state persisted in st.session_state",
+        "All existing UI (beat selector, map, table, CSV export) works unchanged",
+        "python -m py_compile app.py passes",
+        "GitHub issue #16 closed with comment linking to the commit"
+      ],
+      "priority": 15,
+      "passes": false,
+      "notes": ""
     }
   ]
 }

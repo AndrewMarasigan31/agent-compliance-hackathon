@@ -37,42 +37,71 @@ def load_and_filter() -> pd.DataFrame:
     return _filter_base(df)
 
 
-def _apply_hard_exclusions(df: pd.DataFrame, cutoff_year: int | None = None) -> pd.DataFrame:
+def _apply_hard_exclusions(df: pd.DataFrame, cutoff_year: int | None = None, include_ncmb: bool = False) -> pd.DataFrame:
     """Keep only stores eligible for scoring: correct day window, not hard-excluded."""
     # Remove repeat no-conversion stores
     mask = (df["number_of_visits"].fillna(0) >= 5) & (df["no_delivered_orders"].fillna(0) == 0)
     df = df[~mask].copy()
 
+    # Always exclude Current Month Buyers — they already ordered this month
+    if "bucket" in df.columns:
+        df = df[df["bucket"] != "Current Month Buyer"].copy()
+
     # Keep only stores in the eligible day windows
     days_since = (TODAY - df["last_delivered_date"]).dt.days
     nr_cutoff_date = pd.Timestamp(f"{cutoff_year}-01-01") if cutoff_year is not None else None
     nr_mask = (days_since >= 60) & (days_since <= 730) if nr_cutoff_date is None else (days_since >= 60) & (df["last_delivered_date"] >= nr_cutoff_date)
+
+    ncmb_mask = pd.Series(False, index=df.index)
+    if include_ncmb and "bucket" in df.columns:
+        ncmb_mask = df["bucket"] == "Non Current Month Buyer"
+
     eligible = (
         df["last_delivered_date"].isna()                          # never ordered
         | nr_mask                                                 # New/Revival: 60d+ (year-filtered)
         | ((days_since >= 31) & (days_since < 60))                # P30D: 31–60 days
+        | ncmb_mask                                               # Non Current Month Buyers (if enabled)
     )
     return df[eligible].reset_index(drop=True)
 
 
-def _split_pools_from_df(cluster_df: pd.DataFrame, cutoff_year: int | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _split_pools_from_df(cluster_df: pd.DataFrame, cutoff_year: int | None = None, include_ncmb: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Split a pre-filtered DataFrame into (new_revival, p30d) pools."""
     days_since = (TODAY - cluster_df["last_delivered_date"]).dt.days
-    if cutoff_year is not None:
-        cutoff_date = pd.Timestamp(f"{cutoff_year}-01-01")
-        dated_nr_mask = (days_since >= 60) & (cluster_df["last_delivered_date"] >= cutoff_date)
+    has_bucket = "bucket" in cluster_df.columns
+
+    if has_bucket:
+        if cutoff_year is not None:
+            cutoff_date = pd.Timestamp(f"{cutoff_year}-01-01")
+            churned_mask = (cluster_df["bucket"] == "Churned (60+ Days)") & (cluster_df["last_delivered_date"] >= cutoff_date)
+        else:
+            churned_mask = cluster_df["bucket"] == "Churned (60+ Days)"
+
+        nr_mask = (
+            (cluster_df["bucket"] == "No Delivered Order")
+            | cluster_df["last_delivered_date"].isna()
+            | churned_mask
+        )
+        p30d_mask = cluster_df["bucket"] == "P30D No Delivery (NKA)"
+        if include_ncmb:
+            p30d_mask = p30d_mask | (cluster_df["bucket"] == "Non Current Month Buyer")
     else:
-        dated_nr_mask = days_since >= 60  # All time: no upper cap
-    new_revival = cluster_df[
-        cluster_df["last_delivered_date"].isna() | dated_nr_mask
-    ].copy()
-    p30d = cluster_df[(days_since >= 31) & (days_since < 60)].copy()
+        if cutoff_year is not None:
+            cutoff_date = pd.Timestamp(f"{cutoff_year}-01-01")
+            dated_nr_mask = (days_since >= 60) & (cluster_df["last_delivered_date"] >= cutoff_date)
+        else:
+            dated_nr_mask = days_since >= 60
+        nr_mask = cluster_df["last_delivered_date"].isna() | dated_nr_mask
+        p30d_mask = (days_since >= 31) & (days_since < 60)
+
+    new_revival = cluster_df[nr_mask].copy()
+    p30d = cluster_df[p30d_mask].copy()
     return new_revival.reset_index(drop=True), p30d.reset_index(drop=True)
 
 
-def split_pools(df: pd.DataFrame, gcu: str, cutoff_year: int | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+def split_pools(df: pd.DataFrame, gcu: str, cutoff_year: int | None = None, include_ncmb: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Return (new_revival_pool, p30d_pool) for the given GCU."""
-    return _split_pools_from_df(df[df["gcu"] == gcu].copy(), cutoff_year=cutoff_year)
+    return _split_pools_from_df(df[df["gcu"] == gcu].copy(), cutoff_year=cutoff_year, include_ncmb=include_ncmb)
 
 
 # ---------------------------------------------------------------------------
@@ -160,17 +189,22 @@ def score_p30d(pool: pd.DataFrame) -> pd.DataFrame:
     df["_delivery_proximity"] = df["delivery_days"].apply(
         lambda x: max(0.0, (7 - _days_until_next_delivery(x)) / 6)
     )
-    df["_never_visited"] = (df["number_of_visits"].isna() | (df["number_of_visits"] == 0)).astype(float)
+
+    # 1 for Non Current Month Buyers — they ordered last month, warmest P30D lead
+    df["_ncmb_boost"] = 0.0
+    if "bucket" in df.columns:
+        df["_ncmb_boost"] = (df["bucket"] == "Non Current Month Buyer").astype(float)
 
     n_orders = _minmax(df["no_delivered_orders"].fillna(0).astype(float))
     n_days = _minmax(days_since)
     n_delivery = _minmax(df["_delivery_proximity"])
 
-    # Lower days_since = more recent = higher score
+    # ncmb_boost gets 0.30; remaining weights scaled down proportionally (×0.70)
     df["score"] = (
-        0.40 * n_orders
-        + 0.35 * n_delivery
-        + 0.25 * (1.0 - n_days)
+        0.30 * df["_ncmb_boost"]
+        + 0.28 * n_orders
+        + 0.245 * n_delivery
+        + 0.175 * (1.0 - n_days)
     )
 
     return df.sort_values("score", ascending=False).reset_index(drop=True)
@@ -240,7 +274,7 @@ def optimize_route(selected: pd.DataFrame, all_gcu_stores: pd.DataFrame) -> pd.D
 # Streamlit app
 # ---------------------------------------------------------------------------
 
-def run_global_pipeline(df: pd.DataFrame, nr_ratio: float = 0.70, cutoff_year: int | None = None) -> list[pd.DataFrame]:
+def run_global_pipeline(df: pd.DataFrame, nr_ratio: float = 0.70, cutoff_year: int | None = None, include_ncmb: bool = False) -> list[pd.DataFrame]:
     """Return a list of geographically clustered beats across all GCUs.
 
     K = floor(total eligible stores / 30) clusters via KMeans on lat/long.
@@ -248,7 +282,7 @@ def run_global_pipeline(df: pd.DataFrame, nr_ratio: float = 0.70, cutoff_year: i
     Each cluster is independently scored and routed (70:30 split preserved).
     No store appears in more than one beat.
     """
-    all_stores = _apply_hard_exclusions(df.copy(), cutoff_year=cutoff_year)
+    all_stores = _apply_hard_exclusions(df.copy(), cutoff_year=cutoff_year, include_ncmb=include_ncmb)
     if all_stores.empty:
         return []
 
@@ -289,7 +323,7 @@ def run_global_pipeline(df: pd.DataFrame, nr_ratio: float = 0.70, cutoff_year: i
     beats = []
     for cluster_id in unique_clusters:
         cluster_stores = all_stores[all_stores["_cluster"] == cluster_id].copy()
-        new_revival_raw, p30d_raw = _split_pools_from_df(cluster_stores, cutoff_year=cutoff_year)
+        new_revival_raw, p30d_raw = _split_pools_from_df(cluster_stores, cutoff_year=cutoff_year, include_ncmb=include_ncmb)
 
         new_revival = score_new_revival(new_revival_raw) if not new_revival_raw.empty else new_revival_raw
         p30d = score_p30d(p30d_raw) if not p30d_raw.empty else p30d_raw
@@ -375,8 +409,26 @@ def main():
     df = _filter_base(raw)
     st.success(f"Loaded {len(df)} stores from uploaded file.")
 
-    nr_pct = st.slider("New/Revival vs P30D ratio", min_value=50, max_value=100, value=70, step=5,
-                        format="%d%% New/Revival")
+    # Auto-reset ratio default when NCMB checkbox is toggled
+    _prev_ncmb = st.session_state.get("_prev_ncmb_state")
+    include_ncmb = st.checkbox(
+        "Include Non-Current Month Buyers in P30D pool",
+        value=st.session_state.get("include_ncmb", False),
+        help="Stores that ordered last month but not this month. When included, beat composition shifts to 30% New/Revival / 70% P30D.",
+    )
+    if _prev_ncmb != include_ncmb:
+        st.session_state["_prev_ncmb_state"] = include_ncmb
+        st.session_state["nr_pct"] = 30 if include_ncmb else 70
+    st.session_state["include_ncmb"] = include_ncmb
+
+    nr_pct = st.slider(
+        "New/Revival vs P30D ratio",
+        min_value=0, max_value=100,
+        value=st.session_state.get("nr_pct", 30 if include_ncmb else 70),
+        step=5,
+        format="%d%% New/Revival",
+        key="nr_pct",
+    )
     nr_ratio = nr_pct / 100
 
     years_in_data = sorted(
@@ -397,12 +449,13 @@ def main():
     cutoff_year = None if selected_year_str == "All time" else int(selected_year_str)
 
     if st.button("Generate All Beats"):
-        beats = run_global_pipeline(df, nr_ratio=nr_ratio, cutoff_year=cutoff_year)
+        beats = run_global_pipeline(df, nr_ratio=nr_ratio, cutoff_year=cutoff_year, include_ncmb=include_ncmb)
         st.session_state["beats"] = beats
         st.session_state["nr_ratio"] = nr_ratio
         st.session_state["agent_name"] = agent_name.strip() or "Agent"
         st.session_state["cutoff_year"] = cutoff_year
-        st.success(f"Generated {len(beats)} beat(s) — {nr_pct}% New/Revival / {100 - nr_pct}% P30D")
+        ncmb_note = " (Non-Current Month Buyers included)" if include_ncmb else ""
+        st.success(f"Generated {len(beats)} beat(s) — {nr_pct}% New/Revival / {100 - nr_pct}% P30D{ncmb_note}")
 
     if "beats" in st.session_state:
         beats = st.session_state["beats"]
@@ -493,10 +546,12 @@ All inputs normalized 0–1 before weighting.
                 st.markdown("""
 | Factor | Weight |
 |---|---|
-| Order frequency | 40% |
-| Delivery day coming soon | 35% |
-| Recency (lower days = higher score) | 25% |
+| Non-Current Month Buyer boost | 30% |
+| Order frequency | 28% |
+| Delivery day coming soon | 24.5% |
+| Recency (lower days = higher score) | 17.5% |
 
+Non-Current Month Buyers always rank first when included.
 Stores with 5+ visits and 0 orders excluded.
 All inputs normalized 0–1 before weighting.
 """)
