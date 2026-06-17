@@ -119,3 +119,16 @@
   - `(TODAY - pd.Timedelta(days=730)).year` cleanly computes the default cutoff year
   - Adding a `cutoff_year=None` default to all affected functions keeps existing callers backward-compatible
 ---
+
+## 2026-06-17 - US-015
+- Added `include_ncmb` flag throughout: `_apply_hard_exclusions()`, `_split_pools_from_df()`, `split_pools()`, `run_global_pipeline()`
+- `_apply_hard_exclusions()`: always excludes `Current Month Buyer` bucket (ordered 2–16 days ago, no visit needed); when `include_ncmb=True`, NCMB stores (19–28 days) pass through day-window filter
+- `_split_pools_from_df()`: when `bucket` column is present, uses bucket values for pool classification instead of pure date math; `No Delivered Order` + `Churned (60+ Days)` → New/Revival; `P30D No Delivery (NKA)` + (optionally) `Non Current Month Buyer` → P30D
+- `score_p30d()`: added `_ncmb_boost` binary flag (1 for NCMB stores); weighted at 0.30, other factors scaled down proportionally (×0.70): order_freq=0.28, delivery=0.245, recency=0.175
+- `main()`: checkbox "Include Non-Current Month Buyers" appears above ratio slider; toggling checkbox auto-resets slider default to 30% NR (ON) or 70% NR (OFF) via session_state tracking; state persisted in `st.session_state`
+- Files changed: app.py, prd.json, progress.txt
+- **Learnings for future iterations:**
+  - Detecting checkbox toggle: compare current value to `st.session_state.get("_prev_ncmb_state")` before rendering slider, then set `st.session_state["nr_pct"]` to force slider default reset
+  - Using `key="nr_pct"` on the slider binds it to session_state — setting `st.session_state["nr_pct"]` before render forces the new default on the next rerun
+  - Bucket-based pool classification is more reliable than date math when the `bucket` column is present; always check with `has_bucket = "bucket" in df.columns` for backward compat
+---

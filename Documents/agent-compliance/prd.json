@@ -263,7 +263,7 @@
         "GitHub issue #16 closed with comment linking to the commit"
       ],
       "priority": 15,
-      "passes": false,
+      "passes": true,
       "notes": ""
     }
   ]
