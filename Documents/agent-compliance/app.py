@@ -1,6 +1,7 @@
 import math
 import os
 import folium
+import numpy as np
 import pandas as pd
 import streamlit as st
 from datetime import datetime, timedelta
@@ -134,16 +135,16 @@ def _haversine_km(lat1, lon1, lat2, lon2) -> float:
 
 
 def _cluster_density(pool: pd.DataFrame, radius_km: float = 2.0) -> pd.Series:
-    """For each store, count other stores within radius_km."""
-    lats = pool["lat"].values
-    lons = pool["long"].values
-    counts = []
-    for i in range(len(pool)):
-        count = sum(
-            1 for j in range(len(pool))
-            if i != j and _haversine_km(lats[i], lons[i], lats[j], lons[j]) <= radius_km
-        )
-        counts.append(count)
+    """For each store, count other stores within radius_km (vectorized)."""
+    lats = np.radians(pool["lat"].values)
+    lons = np.radians(pool["long"].values)
+    # Broadcast pairwise haversine
+    dlat = lats[:, None] - lats[None, :]
+    dlon = lons[:, None] - lons[None, :]
+    a = np.sin(dlat / 2) ** 2 + np.cos(lats[:, None]) * np.cos(lats[None, :]) * np.sin(dlon / 2) ** 2
+    dist = 6371.0 * 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+    np.fill_diagonal(dist, np.inf)
+    counts = (dist <= radius_km).sum(axis=1)
     return pd.Series(counts, index=pool.index)
 
 
@@ -499,6 +500,8 @@ def main():
         st.session_state["nr_ratio"] = nr_ratio
         st.session_state["agent_name"] = agent_name.strip() or "Agent"
         st.session_state["cutoff_year"] = cutoff_year
+        st.session_state.pop("_map", None)
+        st.session_state.pop("_map_key", None)
         ncmb_note = " (Non-Current Month Buyers included)" if include_ncmb else ""
         st.success(f"Generated {len(beats)} beat(s) — {nr_pct}% Churned / {100 - nr_pct}% P30D{ncmb_note}")
 
@@ -530,11 +533,14 @@ def main():
             daily_list["Beat"] = selected_beat_label
             beat_color = BEAT_COLORS[beat_idx % len(BEAT_COLORS)]
 
-        if show_all_map or selected_beat_label == "All":
-            m = build_all_beats_map(beats, df)
-        else:
-            m = build_map(daily_list, daily_list, color=beat_color)
-        st_folium(m, width="100%", height=500)
+        map_key = (selected_beat_label, show_all_map)
+        if st.session_state.get("_map_key") != map_key:
+            if show_all_map or selected_beat_label == "All":
+                st.session_state["_map"] = build_all_beats_map(beats, df)
+            else:
+                st.session_state["_map"] = build_map(daily_list, daily_list, color=beat_color)
+            st.session_state["_map_key"] = map_key
+        st_folium(st.session_state["_map"], width="100%", height=500)
 
         # Store table
         def _days_since_label(last_date):
