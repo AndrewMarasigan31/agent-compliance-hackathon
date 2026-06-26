@@ -226,7 +226,7 @@ def score_p30d(pool: pd.DataFrame) -> pd.DataFrame:
 # Store selector — 70:30 split with cross-pool backfill
 # ---------------------------------------------------------------------------
 
-def select_stores(churned: pd.DataFrame, p30d: pd.DataFrame, never_ordered: pd.DataFrame, target: int = 60, churned_ratio: float = 0.70) -> pd.DataFrame:
+def select_stores(churned: pd.DataFrame, p30d: pd.DataFrame, never_ordered: pd.DataFrame, target: int = 50, churned_ratio: float = 0.70) -> pd.DataFrame:
     """Pick `target` stores: 70% Churned, 30% P30D, Never-Ordered as backfill only."""
     churned_target = round(target * churned_ratio)
     p30d_target = target - churned_target
@@ -325,8 +325,15 @@ def _merge_small_beats(beats: list[pd.DataFrame], min_size: int = 45, target: in
 
         merged = pd.concat([result[i], result[best_j]], ignore_index=True)
         merged = merged.drop_duplicates(subset=["store_name", "lat", "long"])
-        if "score" in merged.columns:
-            merged = merged.sort_values("score", ascending=False).head(target).reset_index(drop=True)
+        # Churned/P30D always fill first — Never-Ordered fills remaining slots only
+        # (cross-pool score comparison is invalid due to independent normalization)
+        if "pool" in merged.columns and "score" in merged.columns:
+            priority = merged[merged["pool"] != "Never-Ordered"].sort_values("score", ascending=False)
+            backfill = merged[merged["pool"] == "Never-Ordered"].sort_values("score", ascending=False)
+            slots_left = max(0, target - len(priority))
+            merged = pd.concat([priority, backfill.head(slots_left)], ignore_index=True).head(target)
+        else:
+            merged = merged.head(target)
         merged = optimize_route(merged, merged)
 
         result = [b for k, b in enumerate(result) if k != i and k != best_j]
@@ -353,7 +360,7 @@ def run_global_pipeline(df: pd.DataFrame, churned_ratio: float = 0.70, cutoff_ye
         return []
 
     n = len(all_stores)
-    K = max(1, math.floor(n / 60))
+    K = max(1, math.floor(n / 50))
 
     if K <= 1:
         all_stores["_cluster"] = 0
@@ -374,7 +381,7 @@ def run_global_pipeline(df: pd.DataFrame, churned_ratio: float = 0.70, cutoff_ye
         p30d = score_p30d(p30d_raw) if not p30d_raw.empty else p30d_raw
         never_ordered = score_never_ordered(never_ordered_raw) if not never_ordered_raw.empty else never_ordered_raw
 
-        target = min(60, len(cluster_stores))
+        target = min(50, len(cluster_stores))
         selected = select_stores(churned, p30d, never_ordered, target=target, churned_ratio=churned_ratio)
 
         if selected.empty:
@@ -383,7 +390,7 @@ def run_global_pipeline(df: pd.DataFrame, churned_ratio: float = 0.70, cutoff_ye
         beat = optimize_route(selected, cluster_stores)
         beats.append(beat)
 
-    return _merge_small_beats(beats, min_size=45, target=60)
+    return _merge_small_beats(beats, min_size=45, target=50)
 
 
 BEAT_COLORS = [
@@ -613,7 +620,7 @@ All inputs normalized 0–1 before weighting.
 | Nearby store density (2km radius) | 50% |
 | Delivery day coming soon | 50% |
 
-Only appears when Churned + P30D cannot fill the 60-store target.
+Only appears when Churned + P30D cannot fill the 50-store target.
 All inputs normalized 0–1 before weighting.
 """)
 
