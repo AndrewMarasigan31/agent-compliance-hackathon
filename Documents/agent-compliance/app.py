@@ -65,10 +65,12 @@ def _apply_hard_exclusions(df: pd.DataFrame, cutoff_year: int | None = None, inc
     return df[eligible].reset_index(drop=True)
 
 
-def _split_pools_from_df(cluster_df: pd.DataFrame, cutoff_year: int | None = None, include_ncmb: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Split a pre-filtered DataFrame into (new_revival, p30d) pools."""
+def _split_pools_from_df(cluster_df: pd.DataFrame, cutoff_year: int | None = None, include_ncmb: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Split a pre-filtered DataFrame into (churned, p30d, never_ordered) pools."""
     days_since = (TODAY - cluster_df["last_delivered_date"]).dt.days
     has_bucket = "bucket" in cluster_df.columns
+
+    never_ordered_mask = cluster_df["last_delivered_date"].isna()
 
     if has_bucket:
         if cutoff_year is not None:
@@ -77,30 +79,25 @@ def _split_pools_from_df(cluster_df: pd.DataFrame, cutoff_year: int | None = Non
         else:
             churned_mask = cluster_df["bucket"] == "Churned (60+ Days)"
 
-        nr_mask = (
-            (cluster_df["bucket"] == "No Delivered Order")
-            | cluster_df["last_delivered_date"].isna()
-            | churned_mask
-        )
         p30d_mask = cluster_df["bucket"] == "P30D No Delivery (NKA)"
         if include_ncmb:
             p30d_mask = p30d_mask | (cluster_df["bucket"] == "Non Current Month Buyer")
     else:
         if cutoff_year is not None:
             cutoff_date = pd.Timestamp(f"{cutoff_year}-01-01")
-            dated_nr_mask = (days_since >= 60) & (cluster_df["last_delivered_date"] >= cutoff_date)
+            churned_mask = (days_since >= 60) & (cluster_df["last_delivered_date"] >= cutoff_date)
         else:
-            dated_nr_mask = days_since >= 60
-        nr_mask = cluster_df["last_delivered_date"].isna() | dated_nr_mask
+            churned_mask = days_since >= 60
         p30d_mask = (days_since >= 31) & (days_since < 60)
 
-    new_revival = cluster_df[nr_mask].copy()
+    churned = cluster_df[churned_mask & ~never_ordered_mask].copy()
     p30d = cluster_df[p30d_mask].copy()
-    return new_revival.reset_index(drop=True), p30d.reset_index(drop=True)
+    never_ordered = cluster_df[never_ordered_mask].copy()
+    return churned.reset_index(drop=True), p30d.reset_index(drop=True), never_ordered.reset_index(drop=True)
 
 
-def split_pools(df: pd.DataFrame, gcu: str, cutoff_year: int | None = None, include_ncmb: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Return (new_revival_pool, p30d_pool) for the given GCU."""
+def split_pools(df: pd.DataFrame, gcu: str, cutoff_year: int | None = None, include_ncmb: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Return (churned, p30d, never_ordered) pools for the given GCU."""
     return _split_pools_from_df(df[df["gcu"] == gcu].copy(), cutoff_year=cutoff_year, include_ncmb=include_ncmb)
 
 
@@ -155,13 +152,10 @@ def _minmax(series: pd.Series) -> pd.Series:
     return (series - mn) / (mx - mn + 1e-9)
 
 
-def score_new_revival(pool: pd.DataFrame) -> pd.DataFrame:
+def score_churned(pool: pd.DataFrame) -> pd.DataFrame:
     df = pool.copy()
 
-    # Never-ordered stores get days_since=0 (below range), boosting (1 - n_days)
     days_since = (TODAY - df["last_delivered_date"]).dt.days.fillna(0)
-
-    df["_never_visited"] = (df["number_of_visits"].isna() | (df["number_of_visits"] == 0)).astype(float)
     df["_cluster_density"] = _cluster_density(df)
     df["_delivery_proximity"] = df["delivery_days"].apply(
         lambda x: max(0.0, (7 - _days_until_next_delivery(x)) / 6)
@@ -171,12 +165,29 @@ def score_new_revival(pool: pd.DataFrame) -> pd.DataFrame:
     n_cluster = _minmax(df["_cluster_density"].astype(float))
     n_delivery = _minmax(df["_delivery_proximity"])
 
-    # Lower days_since = higher score (recently churned = warmer lead)
     df["score"] = (
-        0.35 * df["_never_visited"]
-        + 0.30 * (1.0 - n_days)
-        + 0.20 * n_cluster
-        + 0.15 * n_delivery
+        0.50 * (1.0 - n_days)
+        + 0.30 * n_cluster
+        + 0.20 * n_delivery
+    )
+
+    return df.sort_values("score", ascending=False).reset_index(drop=True)
+
+
+def score_never_ordered(pool: pd.DataFrame) -> pd.DataFrame:
+    df = pool.copy()
+
+    df["_cluster_density"] = _cluster_density(df)
+    df["_delivery_proximity"] = df["delivery_days"].apply(
+        lambda x: max(0.0, (7 - _days_until_next_delivery(x)) / 6)
+    )
+
+    n_cluster = _minmax(df["_cluster_density"].astype(float))
+    n_delivery = _minmax(df["_delivery_proximity"])
+
+    df["score"] = (
+        0.50 * n_cluster
+        + 0.50 * n_delivery
     )
 
     return df.sort_values("score", ascending=False).reset_index(drop=True)
@@ -214,31 +225,42 @@ def score_p30d(pool: pd.DataFrame) -> pd.DataFrame:
 # Store selector — 70:30 split with cross-pool backfill
 # ---------------------------------------------------------------------------
 
-def select_stores(new_revival: pd.DataFrame, p30d: pd.DataFrame, target: int = 60, nr_ratio: float = 0.70) -> pd.DataFrame:
-    """Pick `target` stores using configurable ratio with cross-pool backfill."""
-    nr_target = round(target * nr_ratio)
-    p30_target = target - nr_target
+def select_stores(churned: pd.DataFrame, p30d: pd.DataFrame, never_ordered: pd.DataFrame, target: int = 60, churned_ratio: float = 0.70) -> pd.DataFrame:
+    """Pick `target` stores: 70% Churned, 30% P30D, Never-Ordered as backfill only."""
+    churned_target = round(target * churned_ratio)
+    p30d_target = target - churned_target
 
-    nr_pool = new_revival.copy()
-    nr_pool["pool"] = "New/Revival"
-    p30_pool = p30d.copy()
-    p30_pool["pool"] = "P30D"
-    if "bucket" in p30_pool.columns:
-        p30_pool.loc[p30_pool["bucket"] == "Non Current Month Buyer", "pool"] = "Non Month Buyer"
+    churned_pool = churned.copy()
+    churned_pool["pool"] = "Churned"
+    p30d_pool = p30d.copy()
+    p30d_pool["pool"] = "P30D"
+    if "bucket" in p30d_pool.columns:
+        p30d_pool.loc[p30d_pool["bucket"] == "Non Current Month Buyer", "pool"] = "Non Month Buyer"
+    never_ordered_pool = never_ordered.copy()
+    never_ordered_pool["pool"] = "Never-Ordered"
 
-    nr_pick = nr_pool.head(nr_target)
-    p30_pick = p30_pool.head(p30_target)
+    churned_pick = churned_pool.head(churned_target)
+    p30d_pick = p30d_pool.head(p30d_target)
 
-    if len(nr_pick) < nr_target:
-        extra = p30_pool.iloc[p30_target:p30_target + (nr_target - len(nr_pick))]
-        p30_pick = pd.concat([p30_pick, extra], ignore_index=True)
+    # Cross-fill between Churned and P30D first
+    if len(churned_pick) < churned_target:
+        extra = p30d_pool.iloc[p30d_target:p30d_target + (churned_target - len(churned_pick))]
+        p30d_pick = pd.concat([p30d_pick, extra], ignore_index=True)
 
-    if len(p30_pick) < p30_target:
-        extra = nr_pool.iloc[nr_target:nr_target + (p30_target - len(p30_pick))]
-        nr_pick = pd.concat([nr_pick, extra], ignore_index=True)
+    if len(p30d_pick) < p30d_target:
+        extra = churned_pool.iloc[churned_target:churned_target + (p30d_target - len(p30d_pick))]
+        churned_pick = pd.concat([churned_pick, extra], ignore_index=True)
 
-    combined = pd.concat([nr_pick, p30_pick], ignore_index=True)
+    combined = pd.concat([churned_pick, p30d_pick], ignore_index=True)
     combined = combined.drop_duplicates(subset=["store_name", "lat", "long"])
+
+    # Never-Ordered only fills remaining gap
+    shortfall = target - len(combined)
+    if shortfall > 0 and not never_ordered_pool.empty:
+        backfill = never_ordered_pool.head(shortfall)
+        combined = pd.concat([combined, backfill], ignore_index=True)
+        combined = combined.drop_duplicates(subset=["store_name", "lat", "long"])
+
     return combined.head(target).reset_index(drop=True)
 
 
@@ -276,12 +298,12 @@ def optimize_route(selected: pd.DataFrame, all_gcu_stores: pd.DataFrame) -> pd.D
 # Streamlit app
 # ---------------------------------------------------------------------------
 
-def run_global_pipeline(df: pd.DataFrame, nr_ratio: float = 0.70, cutoff_year: int | None = None, include_ncmb: bool = False) -> list[pd.DataFrame]:
+def run_global_pipeline(df: pd.DataFrame, churned_ratio: float = 0.70, cutoff_year: int | None = None, include_ncmb: bool = False) -> list[pd.DataFrame]:
     """Return a list of geographically clustered beats across all GCUs.
 
     K = floor(total eligible stores / 60) clusters via KMeans on lat/long.
     Each cluster has at least 60 stores. Remainder is distributed across beats.
-    Each cluster is independently scored and routed (70:30 split preserved).
+    Priority: 70% Churned, 30% P30D, Never-Ordered as backfill only.
     No store appears in more than one beat.
     """
     all_stores = _apply_hard_exclusions(df.copy(), cutoff_year=cutoff_year, include_ncmb=include_ncmb)
@@ -299,7 +321,6 @@ def run_global_pipeline(df: pd.DataFrame, nr_ratio: float = 0.70, cutoff_year: i
         kmeans = KMeans(n_clusters=K, random_state=42, n_init=10)
         all_stores["_cluster"] = kmeans.fit_predict(coords)
 
-        # Merge undersized clusters (< 20 stores) into nearest cluster by centroid
         MIN_CLUSTER_SIZE = 60
         changed = True
         while changed:
@@ -325,13 +346,14 @@ def run_global_pipeline(df: pd.DataFrame, nr_ratio: float = 0.70, cutoff_year: i
     beats = []
     for cluster_id in unique_clusters:
         cluster_stores = all_stores[all_stores["_cluster"] == cluster_id].copy()
-        new_revival_raw, p30d_raw = _split_pools_from_df(cluster_stores, cutoff_year=cutoff_year, include_ncmb=include_ncmb)
+        churned_raw, p30d_raw, never_ordered_raw = _split_pools_from_df(cluster_stores, cutoff_year=cutoff_year, include_ncmb=include_ncmb)
 
-        new_revival = score_new_revival(new_revival_raw) if not new_revival_raw.empty else new_revival_raw
+        churned = score_churned(churned_raw) if not churned_raw.empty else churned_raw
         p30d = score_p30d(p30d_raw) if not p30d_raw.empty else p30d_raw
+        never_ordered = score_never_ordered(never_ordered_raw) if not never_ordered_raw.empty else never_ordered_raw
 
         target = min(60, len(cluster_stores))
-        selected = select_stores(new_revival, p30d, target=target, nr_ratio=nr_ratio)
+        selected = select_stores(churned, p30d, never_ordered, target=target, churned_ratio=churned_ratio)
 
         if selected.empty:
             continue
@@ -424,11 +446,11 @@ def main():
     st.session_state["include_ncmb"] = include_ncmb
 
     nr_pct = st.slider(
-        "New/Revival vs P30D ratio",
+        "Churned vs P30D ratio",
         min_value=0, max_value=100,
         value=st.session_state.get("nr_pct", 30 if include_ncmb else 70),
         step=5,
-        format="%d%% New/Revival",
+        format="%d%% Churned",
         key="nr_pct",
     )
     nr_ratio = nr_pct / 100
@@ -451,13 +473,13 @@ def main():
     cutoff_year = None if selected_year_str == "All time" else int(selected_year_str)
 
     if st.button("Generate All Beats"):
-        beats = run_global_pipeline(df, nr_ratio=nr_ratio, cutoff_year=cutoff_year, include_ncmb=include_ncmb)
+        beats = run_global_pipeline(df, churned_ratio=nr_ratio, cutoff_year=cutoff_year, include_ncmb=include_ncmb)
         st.session_state["beats"] = beats
         st.session_state["nr_ratio"] = nr_ratio
         st.session_state["agent_name"] = agent_name.strip() or "Agent"
         st.session_state["cutoff_year"] = cutoff_year
         ncmb_note = " (Non-Current Month Buyers included)" if include_ncmb else ""
-        st.success(f"Generated {len(beats)} beat(s) — {nr_pct}% New/Revival / {100 - nr_pct}% P30D{ncmb_note}")
+        st.success(f"Generated {len(beats)} beat(s) — {nr_pct}% Churned / {100 - nr_pct}% P30D{ncmb_note}")
 
     if "beats" in st.session_state:
         beats = st.session_state["beats"]
@@ -529,22 +551,22 @@ def main():
         st.dataframe(table, height=400, use_container_width=True)
 
         with st.expander("How stores are scored"):
-            col1, col2 = st.columns(2)
+            col1, col2, col3 = st.columns(3)
             with col1:
-                st.markdown("**New/Revival pool**")
+                st.markdown("**Churned pool (70%)**")
                 st.markdown("""
 | Factor | Weight |
 |---|---|
-| Never visited before | 35% |
-| Recency (lower days = higher score) | 30% |
-| Nearby store density (2km radius) | 20% |
-| Delivery day coming soon | 15% |
+| Recency (lower days = higher score) | 50% |
+| Nearby store density (2km radius) | 30% |
+| Delivery day coming soon | 20% |
 
-Scope: never-ordered OR 60–730 days churned. Stores with 5+ visits and 0 orders excluded.
+Scope: 60d+ since last order, has previous order history.
+Stores with 5+ visits and 0 orders excluded.
 All inputs normalized 0–1 before weighting.
 """)
             with col2:
-                st.markdown("**P30D pool**")
+                st.markdown("**P30D pool (30%)**")
                 st.markdown("""
 | Factor | Weight |
 |---|---|
@@ -555,6 +577,17 @@ All inputs normalized 0–1 before weighting.
 
 Non-Current Month Buyers always rank first when included.
 Stores with 5+ visits and 0 orders excluded.
+All inputs normalized 0–1 before weighting.
+""")
+            with col3:
+                st.markdown("**Never-Ordered (backfill only)**")
+                st.markdown("""
+| Factor | Weight |
+|---|---|
+| Nearby store density (2km radius) | 50% |
+| Delivery day coming soon | 50% |
+
+Only appears when Churned + P30D cannot fill the 60-store target.
 All inputs normalized 0–1 before weighting.
 """)
 
@@ -577,4 +610,3 @@ All inputs normalized 0–1 before weighting.
 
 if __name__ == "__main__":
     main()
-
