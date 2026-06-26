@@ -256,7 +256,7 @@ def select_stores(churned: pd.DataFrame, p30d: pd.DataFrame, never_ordered: pd.D
 
     # Never-Ordered backfill capped at 10% of target
     shortfall = target - len(combined)
-    max_never_ordered = round(target * 0.05)
+    max_never_ordered = round(target * 0.12)
     if shortfall > 0 and not never_ordered_pool.empty:
         backfill = never_ordered_pool.head(min(shortfall, max_never_ordered))
         combined = pd.concat([combined, backfill], ignore_index=True)
