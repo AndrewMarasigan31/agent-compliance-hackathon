@@ -256,7 +256,7 @@ def select_stores(churned: pd.DataFrame, p30d: pd.DataFrame, never_ordered: pd.D
 
     # Never-Ordered backfill capped at 10% of target
     shortfall = target - len(combined)
-    max_never_ordered = round(target * 0.10)
+    max_never_ordered = round(target * 0.05)
     if shortfall > 0 and not never_ordered_pool.empty:
         backfill = never_ordered_pool.head(min(shortfall, max_never_ordered))
         combined = pd.concat([combined, backfill], ignore_index=True)
@@ -296,6 +296,46 @@ def optimize_route(selected: pd.DataFrame, all_gcu_stores: pd.DataFrame) -> pd.D
 
 
 # ---------------------------------------------------------------------------
+# Beat post-processing
+# ---------------------------------------------------------------------------
+
+def _merge_small_beats(beats: list[pd.DataFrame], min_size: int = 45, target: int = 60) -> list[pd.DataFrame]:
+    """Merge any beat smaller than min_size into its geographically nearest beat."""
+    result = [b.copy() for b in beats]
+
+    changed = True
+    while changed:
+        changed = False
+        small = [i for i, b in enumerate(result) if len(b) < min_size]
+        if not small:
+            break
+
+        i = min(small, key=lambda x: len(result[x]))
+        s_lat = result[i]["lat"].mean()
+        s_lon = result[i]["long"].mean()
+
+        best_j = min(
+            (j for j in range(len(result)) if j != i),
+            key=lambda j: _haversine_km(s_lat, s_lon, result[j]["lat"].mean(), result[j]["long"].mean()),
+            default=None,
+        )
+        if best_j is None:
+            break
+
+        merged = pd.concat([result[i], result[best_j]], ignore_index=True)
+        merged = merged.drop_duplicates(subset=["store_name", "lat", "long"])
+        if "score" in merged.columns:
+            merged = merged.sort_values("score", ascending=False).head(target).reset_index(drop=True)
+        merged = optimize_route(merged, merged)
+
+        result = [b for k, b in enumerate(result) if k != i and k != best_j]
+        result.append(merged)
+        changed = True
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Streamlit app
 # ---------------------------------------------------------------------------
 
@@ -322,26 +362,6 @@ def run_global_pipeline(df: pd.DataFrame, churned_ratio: float = 0.70, cutoff_ye
         kmeans = KMeans(n_clusters=K, random_state=42, n_init=10)
         all_stores["_cluster"] = kmeans.fit_predict(coords)
 
-        MIN_CLUSTER_SIZE = 60
-        changed = True
-        while changed:
-            changed = False
-            sizes = all_stores["_cluster"].value_counts()
-            small = sizes[sizes < MIN_CLUSTER_SIZE].index.tolist()
-            if not small:
-                break
-            centroids = all_stores.groupby("_cluster")[["lat", "long"]].mean()
-            for cid in small:
-                if cid not in all_stores["_cluster"].values:
-                    continue
-                c = centroids.loc[cid]
-                others = centroids.drop(index=cid)
-                if others.empty:
-                    break
-                dists = others.apply(lambda r: _haversine_km(c["lat"], c["long"], r["lat"], r["long"]), axis=1)
-                nearest = dists.idxmin()
-                all_stores.loc[all_stores["_cluster"] == cid, "_cluster"] = nearest
-                changed = True
 
     unique_clusters = sorted(all_stores["_cluster"].unique())
     beats = []
@@ -362,7 +382,7 @@ def run_global_pipeline(df: pd.DataFrame, churned_ratio: float = 0.70, cutoff_ye
         beat = optimize_route(selected, cluster_stores)
         beats.append(beat)
 
-    return beats
+    return _merge_small_beats(beats, min_size=45, target=60)
 
 
 BEAT_COLORS = [
