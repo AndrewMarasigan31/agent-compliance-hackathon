@@ -540,7 +540,7 @@ def main():
             else:
                 st.session_state["_map"] = build_map(daily_list, daily_list, color=beat_color)
             st.session_state["_map_key"] = map_key
-        st_folium(st.session_state["_map"], width="100%", height=500)
+        st_folium(st.session_state["_map"], width="100%", height=500, returned_objects=[])
 
         # Store table
         def _days_since_label(last_date):
