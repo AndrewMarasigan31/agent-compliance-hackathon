@@ -214,7 +214,7 @@ def score_p30d(pool: pd.DataFrame) -> pd.DataFrame:
 # Store selector — 70:30 split with cross-pool backfill
 # ---------------------------------------------------------------------------
 
-def select_stores(new_revival: pd.DataFrame, p30d: pd.DataFrame, target: int = 30, nr_ratio: float = 0.70) -> pd.DataFrame:
+def select_stores(new_revival: pd.DataFrame, p30d: pd.DataFrame, target: int = 60, nr_ratio: float = 0.70) -> pd.DataFrame:
     """Pick `target` stores using configurable ratio with cross-pool backfill."""
     nr_target = round(target * nr_ratio)
     p30_target = target - nr_target
@@ -279,8 +279,8 @@ def optimize_route(selected: pd.DataFrame, all_gcu_stores: pd.DataFrame) -> pd.D
 def run_global_pipeline(df: pd.DataFrame, nr_ratio: float = 0.70, cutoff_year: int | None = None, include_ncmb: bool = False) -> list[pd.DataFrame]:
     """Return a list of geographically clustered beats across all GCUs.
 
-    K = floor(total eligible stores / 30) clusters via KMeans on lat/long.
-    Each cluster has at least 30 stores. Remainder is distributed across beats.
+    K = floor(total eligible stores / 60) clusters via KMeans on lat/long.
+    Each cluster has at least 60 stores. Remainder is distributed across beats.
     Each cluster is independently scored and routed (70:30 split preserved).
     No store appears in more than one beat.
     """
@@ -289,7 +289,7 @@ def run_global_pipeline(df: pd.DataFrame, nr_ratio: float = 0.70, cutoff_year: i
         return []
 
     n = len(all_stores)
-    K = max(1, math.floor(n / 30))
+    K = max(1, math.floor(n / 60))
 
     if K <= 1:
         all_stores["_cluster"] = 0
@@ -300,7 +300,7 @@ def run_global_pipeline(df: pd.DataFrame, nr_ratio: float = 0.70, cutoff_year: i
         all_stores["_cluster"] = kmeans.fit_predict(coords)
 
         # Merge undersized clusters (< 20 stores) into nearest cluster by centroid
-        MIN_CLUSTER_SIZE = 30
+        MIN_CLUSTER_SIZE = 60
         changed = True
         while changed:
             changed = False
@@ -330,7 +330,7 @@ def run_global_pipeline(df: pd.DataFrame, nr_ratio: float = 0.70, cutoff_year: i
         new_revival = score_new_revival(new_revival_raw) if not new_revival_raw.empty else new_revival_raw
         p30d = score_p30d(p30d_raw) if not p30d_raw.empty else p30d_raw
 
-        target = min(30, len(cluster_stores))
+        target = min(60, len(cluster_stores))
         selected = select_stores(new_revival, p30d, target=target, nr_ratio=nr_ratio)
 
         if selected.empty:
@@ -577,3 +577,4 @@ All inputs normalized 0–1 before weighting.
 
 if __name__ == "__main__":
     main()
+
