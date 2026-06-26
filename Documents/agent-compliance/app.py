@@ -522,17 +522,16 @@ def main():
             return int((TODAY - last_date).days)
 
         cols = ["Beat", "rank", "store_name", "barangay", "city", "pool",
-                "last_delivered_date", "_never_visited", "score",
+                "last_delivered_date", "score",
                 "bakit hindi umorder si customer?", "number_of_visits", "visit_date"]
         for col in ["username", "gcu"]:
             if col in daily_list.columns:
                 cols.append(col)
         table = daily_list[[c for c in cols if c in daily_list.columns]].copy()
         table["Days Since Last Order"] = table["last_delivered_date"].apply(_days_since_label)
-        table["Never Visited"] = table["_never_visited"].apply(lambda x: "Yes" if x == 1.0 else "No")
         table["score"] = table["score"].round(2)
         table["visit_date"] = pd.to_datetime(table["visit_date"], errors="coerce").dt.strftime("%Y-%m-%d").fillna("Never")
-        table = table.drop(columns=["last_delivered_date", "_never_visited"])
+        table = table.drop(columns=["last_delivered_date"])
         rename_map = {"rank": "Rank", "store_name": "Store Name", "barangay": "Barangay",
                       "city": "City", "pool": "Pool", "score": "Score",
                       "username": "Username", "gcu": "GCU",
@@ -543,7 +542,7 @@ def main():
         for c in ["Username", "GCU"]:
             if c in table.columns:
                 display_cols.append(c)
-        display_cols += ["Barangay", "City", "Pool", "Never Visited", "Days Since Last Order",
+        display_cols += ["Barangay", "City", "Pool", "Days Since Last Order",
                          "# Visits", "Last Visit Date", "Rejection Reason", "Score"]
         table = table[[c for c in display_cols if c in table.columns]]
         table = table.sort_values(["Beat", "Rank"]).reset_index(drop=True)
