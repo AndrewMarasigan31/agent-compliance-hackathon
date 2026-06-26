@@ -254,10 +254,11 @@ def select_stores(churned: pd.DataFrame, p30d: pd.DataFrame, never_ordered: pd.D
     combined = pd.concat([churned_pick, p30d_pick], ignore_index=True)
     combined = combined.drop_duplicates(subset=["store_name", "lat", "long"])
 
-    # Never-Ordered only fills remaining gap
+    # Never-Ordered backfill capped at 10% of target
     shortfall = target - len(combined)
+    max_never_ordered = round(target * 0.10)
     if shortfall > 0 and not never_ordered_pool.empty:
-        backfill = never_ordered_pool.head(shortfall)
+        backfill = never_ordered_pool.head(min(shortfall, max_never_ordered))
         combined = pd.concat([combined, backfill], ignore_index=True)
         combined = combined.drop_duplicates(subset=["store_name", "lat", "long"])
 
