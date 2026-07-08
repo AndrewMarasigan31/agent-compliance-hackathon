@@ -168,11 +168,12 @@ def score_by_date(pool: pd.DataFrame) -> pd.DataFrame:
         tier[df["bucket"] == "Churned (60+ Days)"] = 1
         tier[df["bucket"] == "P30D No Delivery (NKA)"] = 2
         tier[df["bucket"] == "Non Current Month Buyer"] = 3
-        pool_label = pd.Series("Other", index=df.index)
+        pool_label = pd.Series("New Store (No Order)", index=df.index)
         pool_label[df["bucket"] == "Churned (60+ Days)"] = "Churned"
         pool_label[df["bucket"] == "P30D No Delivery (NKA)"] = "P30D"
         pool_label[df["bucket"] == "Non Current Month Buyer"] = "Non Month Buyer"
-        pool_label[df["last_delivered_date"].isna()] = "Never-Ordered"
+        pool_label[df["bucket"] == "Resat Visited"] = "New Store (No Order)"
+        pool_label[df["last_delivered_date"].isna()] = "New Store (No Order)"
         df["pool"] = pool_label
     else:
         tier = pd.Series(0, index=df.index)                       # never-ordered
@@ -631,7 +632,7 @@ Stores are ranked purely by **last delivery date**, in priority tiers:
 | 1 (top) | Non-Current Month Buyer | ordered last month, not this month — warmest |
 | 2 | P30D | 31–60 days since last delivery |
 | 3 | Churned | 60+ days since last delivery |
-| bottom | Never-Ordered / other | no delivery date — sorts last |
+| bottom | New Store (No Order) | Resat-visited or never-delivered stores — sort last |
 
 Within each tier, the **most recently delivered** store ranks first. Non-Current Month Buyers are always included. Stores with 5+ visits and 0 orders, current-month buyers, closed stores, and stores visited in the last 7 days are excluded.
 
