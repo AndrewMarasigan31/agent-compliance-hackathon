@@ -355,31 +355,48 @@ def _hybrid_beats(ranked: pd.DataFrame, alpha: float = 0.65, cap: int = BEAT_TAR
     """
     df = ranked.copy().reset_index(drop=True)
     n = len(df)
-    df["_ns"] = _minmax(df["score"])
+    ns = _minmax(df["score"]).to_numpy()
+    lats = df["lat"].to_numpy()
+    lons = df["long"].to_numpy()
     K = max(1, math.ceil(n / cap))
 
     if K == 1:
-        anchors = [(df["lat"].mean(), df["long"].mean())]
+        anchors = np.array([[lats.mean(), lons.mean()]])
     else:
-        km = KMeans(n_clusters=K, random_state=42, n_init=10).fit(df[["lat", "long"]].values)
-        anchors = [tuple(c) for c in km.cluster_centers_]
+        km = KMeans(n_clusters=K, random_state=42, n_init=10).fit(np.column_stack([lats, lons]))
+        anchors = km.cluster_centers_
 
-    unassigned = set(df.index)
+    # Precompute K×n anchor→store distances once (vectorized haversine), then the
+    # round-robin fill just indexes into it — O(n·K) instead of O(n²) pure-Python.
+    alat = np.radians(anchors[:, 0])[:, None]
+    alon = np.radians(anchors[:, 1])[:, None]
+    slat = np.radians(lats)[None, :]
+    slon = np.radians(lons)[None, :]
+    dlat = slat - alat
+    dlon = slon - alon
+    a = np.sin(dlat / 2) ** 2 + np.cos(alat) * np.cos(slat) * np.sin(dlon / 2) ** 2
+    dist = 6371.0 * 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))  # shape (K, n)
+    dmax = dist.max(axis=1, keepdims=True)
+    dmax[dmax == 0] = 1.0
+    gain = alpha * ns[None, :] + (1 - alpha) * (1 - dist / dmax)  # shape (K, n)
+
+    unassigned = np.ones(n, dtype=bool)
     beats_idx = [[] for _ in range(K)]
+    counts = [0] * K
+    remaining = n
     rnd = 0
-    while unassigned:
+    while remaining > 0:
         progressed = False
         # rotate which beat picks first each round to avoid a fixed beat-0 advantage
         for bi in [(rnd + k) % K for k in range(K)]:
-            if len(beats_idx[bi]) >= cap or not unassigned:
+            if counts[bi] >= cap or remaining == 0:
                 continue
-            clat, clon = anchors[bi]
-            rem = list(unassigned)
-            dists = {i: _haversine_km(clat, clon, df.at[i, "lat"], df.at[i, "long"]) for i in rem}
-            mx = max(dists.values()) or 1.0
-            pick = max(rem, key=lambda i: alpha * df.at[i, "_ns"] + (1 - alpha) * (1 - dists[i] / mx))
+            g = np.where(unassigned, gain[bi], -np.inf)
+            pick = int(np.argmax(g))
             beats_idx[bi].append(pick)
-            unassigned.discard(pick)
+            unassigned[pick] = False
+            counts[bi] += 1
+            remaining -= 1
             progressed = True
         if not progressed:
             break
@@ -389,7 +406,7 @@ def _hybrid_beats(ranked: pd.DataFrame, alpha: float = 0.65, cap: int = BEAT_TAR
     for idx in beats_idx:
         if not idx:
             continue
-        beat = df.loc[idx].drop(columns="_ns").copy()
+        beat = df.iloc[idx].reset_index(drop=True)
         beats.append(optimize_route(beat, beat))
     return beats
 
