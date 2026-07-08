@@ -10,6 +10,7 @@ from streamlit_folium import st_folium
 
 CSV_PATH = os.path.join(os.path.dirname(__file__), "store_leads.csv")
 TODAY = pd.Timestamp(datetime.now().date())
+BEAT_TARGET = 50  # stores per beat (matches the deployed app's beat size)
 CLOSED_REASONS = {
     "Permanently Closed",
     "Temporarily Closed",
@@ -153,6 +154,41 @@ def _minmax(series: pd.Series) -> pd.Series:
     return (series - mn) / (mx - mn + 1e-9)
 
 
+def score_by_date(pool: pd.DataFrame) -> pd.DataFrame:
+    """Rank purely by last delivery date, tiered: NCMB > P30D > Churned > never-ordered.
+
+    Within each tier, most recently delivered stores rank first. Falls back to
+    day-thresholds when the `bucket` column is absent.
+    """
+    df = pool.copy()
+    days_since = (TODAY - df["last_delivered_date"]).dt.days
+
+    if "bucket" in df.columns:
+        tier = pd.Series(0, index=df.index)
+        tier[df["bucket"] == "Churned (60+ Days)"] = 1
+        tier[df["bucket"] == "P30D No Delivery (NKA)"] = 2
+        tier[df["bucket"] == "Non Current Month Buyer"] = 3
+        pool_label = pd.Series("Other", index=df.index)
+        pool_label[df["bucket"] == "Churned (60+ Days)"] = "Churned"
+        pool_label[df["bucket"] == "P30D No Delivery (NKA)"] = "P30D"
+        pool_label[df["bucket"] == "Non Current Month Buyer"] = "Non Month Buyer"
+        pool_label[df["last_delivered_date"].isna()] = "Never-Ordered"
+        df["pool"] = pool_label
+    else:
+        tier = pd.Series(0, index=df.index)                       # never-ordered
+        tier[days_since >= 60] = 1                                # churned
+        tier[(days_since >= 31) & (days_since < 60)] = 2          # P30D
+        df["pool"] = "Churned"
+        df.loc[(days_since >= 31) & (days_since < 60), "pool"] = "P30D"
+        df.loc[df["last_delivered_date"].isna(), "pool"] = "Never-Ordered"
+
+    # within-tier recency: smaller days_since = higher. never-ordered sorts last.
+    recency = 1.0 - _minmax(days_since.fillna(days_since.max() if days_since.notna().any() else 0))
+    df["score"] = tier + 0.999 * recency
+
+    return df.sort_values("score", ascending=False).reset_index(drop=True)
+
+
 def score_churned(pool: pd.DataFrame) -> pd.DataFrame:
     df = pool.copy()
 
@@ -223,7 +259,7 @@ def score_p30d(pool: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Store selector — 70:30 split with cross-pool backfill
+# Store selector — legacy 70:30 split (kept for reference; unused by V2 pipeline)
 # ---------------------------------------------------------------------------
 
 def select_stores(churned: pd.DataFrame, p30d: pd.DataFrame, never_ordered: pd.DataFrame, target: int = 50, churned_ratio: float = 0.70) -> pd.DataFrame:
@@ -243,7 +279,6 @@ def select_stores(churned: pd.DataFrame, p30d: pd.DataFrame, never_ordered: pd.D
     churned_pick = churned_pool.head(churned_target)
     p30d_pick = p30d_pool.head(p30d_target)
 
-    # Cross-fill between Churned and P30D first
     if len(churned_pick) < churned_target:
         extra = p30d_pool.iloc[p30d_target:p30d_target + (churned_target - len(churned_pick))]
         p30d_pick = pd.concat([p30d_pick, extra], ignore_index=True)
@@ -255,7 +290,6 @@ def select_stores(churned: pd.DataFrame, p30d: pd.DataFrame, never_ordered: pd.D
     combined = pd.concat([churned_pick, p30d_pick], ignore_index=True)
     combined = combined.drop_duplicates(subset=["store_name", "lat", "long"])
 
-    # Never-Ordered backfill capped at 10% of target
     shortfall = target - len(combined)
     max_never_ordered = round(target * 0.12)
     if shortfall > 0 and not never_ordered_pool.empty:
@@ -296,101 +330,83 @@ def optimize_route(selected: pd.DataFrame, all_gcu_stores: pd.DataFrame) -> pd.D
     return result
 
 
+def route_distance_km(beat: pd.DataFrame) -> float:
+    """Total travel distance along a routed beat (sum of consecutive hops)."""
+    if len(beat) < 2:
+        return 0.0
+    return sum(
+        _haversine_km(beat.iloc[i]["lat"], beat.iloc[i]["long"], beat.iloc[i + 1]["lat"], beat.iloc[i + 1]["long"])
+        for i in range(len(beat) - 1)
+    )
+
+
 # ---------------------------------------------------------------------------
-# Beat post-processing
+# Balanced hybrid beats — geographic seeds + parallel round-robin fill
 # ---------------------------------------------------------------------------
 
-def _merge_small_beats(beats: list[pd.DataFrame], min_size: int = 45, target: int = 60) -> list[pd.DataFrame]:
-    """Merge any beat smaller than min_size into its geographically nearest beat."""
-    result = [b.copy() for b in beats]
+def _hybrid_beats(ranked: pd.DataFrame, alpha: float = 0.65, cap: int = BEAT_TARGET) -> list[pd.DataFrame]:
+    """Geographic seeds + parallel round-robin fill, blending urgency and nearness.
 
-    changed = True
-    while changed:
-        changed = False
-        small = [i for i, b in enumerate(result) if len(b) < min_size]
-        if not small:
+    alpha = weight on lead urgency, (1-alpha) = weight on geographic nearness.
+    Beats are anchored to KMeans geographic centroids (so each beat owns a region),
+    then filled one store per beat per round — each pick maximizes
+    alpha*norm_score + (1-alpha)*(1 - norm_distance_to_its_anchor). Filling all beats
+    in parallel keeps urgent leads distributed across regions instead of hoarded in beat 1.
+    """
+    df = ranked.copy().reset_index(drop=True)
+    n = len(df)
+    df["_ns"] = _minmax(df["score"])
+    K = max(1, math.ceil(n / cap))
+
+    if K == 1:
+        anchors = [(df["lat"].mean(), df["long"].mean())]
+    else:
+        km = KMeans(n_clusters=K, random_state=42, n_init=10).fit(df[["lat", "long"]].values)
+        anchors = [tuple(c) for c in km.cluster_centers_]
+
+    unassigned = set(df.index)
+    beats_idx = [[] for _ in range(K)]
+    rnd = 0
+    while unassigned:
+        progressed = False
+        # rotate which beat picks first each round to avoid a fixed beat-0 advantage
+        for bi in [(rnd + k) % K for k in range(K)]:
+            if len(beats_idx[bi]) >= cap or not unassigned:
+                continue
+            clat, clon = anchors[bi]
+            rem = list(unassigned)
+            dists = {i: _haversine_km(clat, clon, df.at[i, "lat"], df.at[i, "long"]) for i in rem}
+            mx = max(dists.values()) or 1.0
+            pick = max(rem, key=lambda i: alpha * df.at[i, "_ns"] + (1 - alpha) * (1 - dists[i] / mx))
+            beats_idx[bi].append(pick)
+            unassigned.discard(pick)
+            progressed = True
+        if not progressed:
             break
+        rnd += 1
 
-        i = min(small, key=lambda x: len(result[x]))
-        s_lat = result[i]["lat"].mean()
-        s_lon = result[i]["long"].mean()
-
-        best_j = min(
-            (j for j in range(len(result)) if j != i),
-            key=lambda j: _haversine_km(s_lat, s_lon, result[j]["lat"].mean(), result[j]["long"].mean()),
-            default=None,
-        )
-        if best_j is None:
-            break
-
-        merged = pd.concat([result[i], result[best_j]], ignore_index=True)
-        merged = merged.drop_duplicates(subset=["store_name", "lat", "long"])
-        # Churned/P30D always fill first — Never-Ordered fills remaining slots only
-        # (cross-pool score comparison is invalid due to independent normalization)
-        if "pool" in merged.columns and "score" in merged.columns:
-            priority = merged[merged["pool"] != "Never-Ordered"].sort_values("score", ascending=False)
-            backfill = merged[merged["pool"] == "Never-Ordered"].sort_values("score", ascending=False)
-            slots_left = max(0, target - len(priority))
-            merged = pd.concat([priority, backfill.head(slots_left)], ignore_index=True).head(target)
-        else:
-            merged = merged.head(target)
-        merged = optimize_route(merged, merged)
-
-        result = [b for k, b in enumerate(result) if k != i and k != best_j]
-        result.append(merged)
-        changed = True
-
-    return result
+    beats = []
+    for idx in beats_idx:
+        if not idx:
+            continue
+        beat = df.loc[idx].drop(columns="_ns").copy()
+        beats.append(optimize_route(beat, beat))
+    return beats
 
 
 # ---------------------------------------------------------------------------
 # Streamlit app
 # ---------------------------------------------------------------------------
 
-def run_global_pipeline(df: pd.DataFrame, churned_ratio: float = 0.70, cutoff_year: int | None = None, include_ncmb: bool = False) -> list[pd.DataFrame]:
-    """Return a list of geographically clustered beats across all GCUs.
-
-    K = floor(total eligible stores / 60) clusters via KMeans on lat/long.
-    Each cluster has at least 60 stores. Remainder is distributed across beats.
-    Priority: 70% Churned, 30% P30D, Never-Ordered as backfill only.
-    No store appears in more than one beat.
-    """
-    all_stores = _apply_hard_exclusions(df.copy(), cutoff_year=cutoff_year, include_ncmb=include_ncmb)
+def run_global_pipeline(df: pd.DataFrame, cutoff_year: int | None = None, alpha: float = 0.65) -> list[pd.DataFrame]:
+    """Rank all eligible stores by last delivery date (NCMB → P30D → Churned, NCMB
+    always included), then group them into balanced geographic beats that blend
+    lead urgency and travel (`alpha` = urgency weight)."""
+    all_stores = _apply_hard_exclusions(df.copy(), cutoff_year=cutoff_year, include_ncmb=True)
     if all_stores.empty:
         return []
-
-    n = len(all_stores)
-    K = max(1, math.floor(n / 50))
-
-    if K <= 1:
-        all_stores["_cluster"] = 0
-        K = 1
-    else:
-        coords = all_stores[["lat", "long"]].values
-        kmeans = KMeans(n_clusters=K, random_state=42, n_init=10)
-        all_stores["_cluster"] = kmeans.fit_predict(coords)
-
-
-    unique_clusters = sorted(all_stores["_cluster"].unique())
-    beats = []
-    for cluster_id in unique_clusters:
-        cluster_stores = all_stores[all_stores["_cluster"] == cluster_id].copy()
-        churned_raw, p30d_raw, never_ordered_raw = _split_pools_from_df(cluster_stores, cutoff_year=cutoff_year, include_ncmb=include_ncmb)
-
-        churned = score_churned(churned_raw) if not churned_raw.empty else churned_raw
-        p30d = score_p30d(p30d_raw) if not p30d_raw.empty else p30d_raw
-        never_ordered = score_never_ordered(never_ordered_raw) if not never_ordered_raw.empty else never_ordered_raw
-
-        target = min(50, len(cluster_stores))
-        selected = select_stores(churned, p30d, never_ordered, target=target, churned_ratio=churned_ratio)
-
-        if selected.empty:
-            continue
-
-        beat = optimize_route(selected, cluster_stores)
-        beats.append(beat)
-
-    return _merge_small_beats(beats, min_size=45, target=50)
+    ranked = score_by_date(all_stores)
+    return _hybrid_beats(ranked, alpha=alpha)
 
 
 BEAT_COLORS = [
@@ -462,27 +478,14 @@ def main():
     df = _filter_base(raw)
     st.success(f"Loaded {len(df)} stores from uploaded file.")
 
-    # Auto-reset ratio default when NCMB checkbox is toggled
-    _prev_ncmb = st.session_state.get("_prev_ncmb_state")
-    include_ncmb = st.checkbox(
-        "Include Non-Current Month Buyers in P30D pool",
-        value=st.session_state.get("include_ncmb", False),
-        help="Stores that ordered last month but not this month. When included, beat composition shifts to 30% New/Revival / 70% P30D.",
+    urgency_pct = st.slider(
+        "Urgency vs travel balance",
+        min_value=0, max_value=100, value=65, step=5,
+        format="%d%% urgency",
+        help="Weight on lead urgency vs geographic nearness. 65% urgency / 35% geography by default. "
+             "Higher = chase hot leads harder; lower = tighter regional routes. Beats stay geographically anchored either way.",
     )
-    if _prev_ncmb != include_ncmb:
-        st.session_state["_prev_ncmb_state"] = include_ncmb
-        st.session_state["nr_pct"] = 30 if include_ncmb else 70
-    st.session_state["include_ncmb"] = include_ncmb
-
-    nr_pct = st.slider(
-        "Churned vs P30D ratio",
-        min_value=0, max_value=100,
-        value=st.session_state.get("nr_pct", 30 if include_ncmb else 70),
-        step=5,
-        format="%d%% Churned",
-        key="nr_pct",
-    )
-    nr_ratio = nr_pct / 100
+    alpha = urgency_pct / 100
 
     years_in_data = sorted(
         df["last_delivered_date"].dropna().dt.year.unique().tolist(),
@@ -495,28 +498,46 @@ def main():
         len(year_options) - 1,
     )
     selected_year_str = st.selectbox(
-        "New/Revival cutoff year (last delivered ≥ Jan 1 of selected year; never-ordered always included)",
+        "Churned cutoff year (last delivered ≥ Jan 1 of selected year; never-ordered always included)",
         year_options,
         index=default_idx,
     )
     cutoff_year = None if selected_year_str == "All time" else int(selected_year_str)
 
+    st.caption("Stores rank by last delivery date (NCMB → P30D → Churned, always including Non-Current Month Buyers), then split into balanced geographic beats using the urgency/travel weight above.")
+
     if st.button("Generate All Beats"):
-        beats = run_global_pipeline(df, churned_ratio=nr_ratio, cutoff_year=cutoff_year, include_ncmb=include_ncmb)
+        beats = run_global_pipeline(df, cutoff_year=cutoff_year, alpha=alpha)
         st.session_state["beats"] = beats
-        st.session_state["nr_ratio"] = nr_ratio
         st.session_state["agent_name"] = agent_name.strip() or "Agent"
         st.session_state["cutoff_year"] = cutoff_year
         st.session_state.pop("_map", None)
         st.session_state.pop("_map_key", None)
-        ncmb_note = " (Non-Current Month Buyers included)" if include_ncmb else ""
-        st.success(f"Generated {len(beats)} beat(s) — {nr_pct}% Churned / {100 - nr_pct}% P30D{ncmb_note}")
+        st.success(f"Generated {len(beats)} beat(s) — ranked by last delivery date (NCMB → P30D → Churned), {urgency_pct}% urgency / {100 - urgency_pct}% geography")
 
     if "beats" in st.session_state:
         beats = st.session_state["beats"]
         saved_agent = st.session_state.get("agent_name", "Agent")
 
         st.subheader(f"{saved_agent} — {len(beats)} Beat(s)")
+
+        # Travel vs lead-quality tradeoff summary
+        summary = pd.DataFrame([
+            {
+                "Beat": f"Beat {i+1}",
+                "Stores": len(b),
+                "Travel (km)": round(route_distance_km(b), 1),
+                "Avg Score": round(b["score"].mean(), 3) if "score" in b.columns else None,
+            }
+            for i, b in enumerate(beats)
+        ])
+        if not summary.empty:
+            tot_km = summary["Travel (km)"].sum()
+            avg_score = (summary["Avg Score"] * summary["Stores"]).sum() / max(summary["Stores"].sum(), 1)
+            c1, c2 = st.columns(2)
+            c1.metric("Total travel across beats", f"{tot_km:.0f} km")
+            c2.metric("Weighted avg lead score", f"{avg_score:.3f}")
+            st.dataframe(summary, use_container_width=True, hide_index=True)
 
         beat_labels = ["All"] + [f"Beat {i+1}" for i in range(len(beats))]
         col_beat, col_toggle = st.columns([3, 1])
@@ -563,6 +584,7 @@ def main():
                 cols.append(col)
         table = daily_list[[c for c in cols if c in daily_list.columns]].copy()
         table["Days Since Last Order"] = table["last_delivered_date"].apply(_days_since_label)
+        table["Last Delivery Date"] = table["last_delivered_date"].dt.strftime("%Y-%m-%d").fillna("Never")
         table["score"] = table["score"].round(2)
         table["visit_date"] = pd.to_datetime(table["visit_date"], errors="coerce").dt.strftime("%Y-%m-%d").fillna("Never")
         table = table.drop(columns=["last_delivered_date"])
@@ -576,52 +598,27 @@ def main():
         for c in ["Username", "GCU"]:
             if c in table.columns:
                 display_cols.append(c)
-        display_cols += ["Barangay", "City", "Pool", "Days Since Last Order",
+        display_cols += ["Barangay", "City", "Pool", "Last Delivery Date", "Days Since Last Order",
                          "# Visits", "Last Visit Date", "Rejection Reason", "Score"]
         table = table[[c for c in display_cols if c in table.columns]]
         table = table.sort_values(["Beat", "Rank"]).reset_index(drop=True)
 
         st.dataframe(table, height=400, use_container_width=True)
 
-        with st.expander("How stores are scored"):
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.markdown("**Churned pool (70%)**")
-                st.markdown("""
-| Factor | Weight |
-|---|---|
-| Recency (lower days = higher score) | 50% |
-| Nearby store density (2km radius) | 30% |
-| Delivery day coming soon | 20% |
+        with st.expander("How stores are ranked"):
+            st.markdown("""
+Stores are ranked purely by **last delivery date**, in priority tiers:
 
-Scope: 60d+ since last order, has previous order history.
-Stores with 5+ visits and 0 orders excluded.
-All inputs normalized 0–1 before weighting.
-""")
-            with col2:
-                st.markdown("**P30D pool (30%)**")
-                st.markdown("""
-| Factor | Weight |
-|---|---|
-| Non-Current Month Buyer boost | 30% |
-| Order frequency | 28% |
-| Delivery day coming soon | 24.5% |
-| Recency (lower days = higher score) | 17.5% |
+| Tier | Bucket | Meaning |
+|---|---|---|
+| 1 (top) | Non-Current Month Buyer | ordered last month, not this month — warmest |
+| 2 | P30D | 31–60 days since last delivery |
+| 3 | Churned | 60+ days since last delivery |
+| bottom | Never-Ordered / other | no delivery date — sorts last |
 
-Non-Current Month Buyers always rank first when included.
-Stores with 5+ visits and 0 orders excluded.
-All inputs normalized 0–1 before weighting.
-""")
-            with col3:
-                st.markdown("**Never-Ordered (backfill only)**")
-                st.markdown("""
-| Factor | Weight |
-|---|---|
-| Nearby store density (2km radius) | 50% |
-| Delivery day coming soon | 50% |
+Within each tier, the **most recently delivered** store ranks first. Non-Current Month Buyers are always included. Stores with 5+ visits and 0 orders, current-month buyers, closed stores, and stores visited in the last 7 days are excluded.
 
-Only appears when Churned + P30D cannot fill the 50-store target.
-All inputs normalized 0–1 before weighting.
+**Beats** are then built by anchoring to geographic regions and filling each beat in parallel with a blend of lead urgency and nearness (set by the *Urgency vs travel balance* slider), so urgent leads spread across beats instead of piling into day one.
 """)
 
         # CSV export
