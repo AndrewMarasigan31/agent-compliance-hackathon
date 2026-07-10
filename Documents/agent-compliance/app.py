@@ -590,6 +590,8 @@ def main():
                 "Stores": len(b),
                 "Travel (km)": round(route_distance_km(b), 1),
                 "Avg Score": round(b["score"].mean(), 3) if "score" in b.columns else None,
+                "Churned": int((b["pool"] == "Churned").sum()) if "pool" in b.columns else 0,
+                "P30D": int((b["pool"] == "P30D").sum()) if "pool" in b.columns else 0,
                 "Active Stores (15-29d)": int((b["pool"] == "Recent (15-29d)").sum()) if "pool" in b.columns else 0,
             }
             for i, b in enumerate(beats)
