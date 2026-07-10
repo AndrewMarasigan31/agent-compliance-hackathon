@@ -540,9 +540,9 @@ def main():
     alpha = urgency_pct / 100
 
     include_recent = st.checkbox(
-        "[PN AND LU AGENTS] Include recently-slipping stores (last ordered 15–29 days ago)",
+        "[LP AND PN AGENTS] Include recently-slipping stores (last ordered 15–29 days ago)",
         value=False,
-        help="For PN and LU agents. Adds stores that ordered 15–29 days ago as an opportunistic 'if nearby, visit' segment. "
+        help="For LP and PN agents. Adds stores that ordered 15–29 days ago as an opportunistic 'if nearby, visit' segment. "
              "Capped at 40% of any route so they never crowd out lapsed customers.",
     )
     if include_recent:
