@@ -39,7 +39,12 @@ def load_and_filter() -> pd.DataFrame:
     return _filter_base(df)
 
 
-def _apply_hard_exclusions(df: pd.DataFrame, cutoff_year: int | None = None, include_ncmb: bool = False) -> pd.DataFrame:
+RECENT_MIN_DAYS = 15
+RECENT_MAX_DAYS = 29
+RECENT_BEAT_CAP = 0.40  # 15-29d "recent" stores may fill at most this share of a beat
+
+
+def _apply_hard_exclusions(df: pd.DataFrame, cutoff_year: int | None = None, include_ncmb: bool = False, include_recent: bool = False) -> pd.DataFrame:
     """Keep only stores eligible for scoring: correct day window, not hard-excluded."""
     # Remove repeat no-conversion stores
     mask = (df["number_of_visits"].fillna(0) >= 5) & (df["no_delivered_orders"].fillna(0) == 0)
@@ -58,11 +63,20 @@ def _apply_hard_exclusions(df: pd.DataFrame, cutoff_year: int | None = None, inc
     if include_ncmb and "bucket" in df.columns:
         ncmb_mask = df["bucket"] == "Non Current Month Buyer"
 
+    # Recent early-slip window: stores that last ordered 15-29 days ago (this version only).
+    # Prefer the explicit bucket label; fall back to the date window when it's absent.
+    recent_mask = pd.Series(False, index=df.index)
+    if include_recent:
+        recent_mask = (days_since >= RECENT_MIN_DAYS) & (days_since <= RECENT_MAX_DAYS)
+        if "bucket" in df.columns:
+            recent_mask = recent_mask | (df["bucket"] == "15-29 Days No Delivery (NKA)")
+
     eligible = (
         df["last_delivered_date"].isna()                          # never ordered
         | nr_mask                                                 # New/Revival: 60d+ (year-filtered)
         | ((days_since >= 31) & (days_since < 60))                # P30D: 31–60 days
         | ncmb_mask                                               # Non Current Month Buyers (if enabled)
+        | recent_mask                                             # Recent 15–29d (this version only)
     )
     return df[eligible].reset_index(drop=True)
 
@@ -174,6 +188,13 @@ def score_by_date(pool: pd.DataFrame) -> pd.DataFrame:
         pool_label[df["bucket"] == "Non Current Month Buyer"] = "Non Month Buyer"
         pool_label[df["bucket"] == "Resat Visited"] = "New Store (No Order)"
         pool_label[df["last_delivered_date"].isna()] = "New Store (No Order)"
+        # Recent 15-29d stores (explicit bucket, or date window when unlabeled) → opportunistic segment
+        recent_win = (
+            (df["bucket"] == "15-29 Days No Delivery (NKA)")
+            | ((days_since >= RECENT_MIN_DAYS) & (days_since <= RECENT_MAX_DAYS))
+        )
+        not_warm = ~df["bucket"].isin(["Non Current Month Buyer", "P30D No Delivery (NKA)", "Churned (60+ Days)"])
+        pool_label[recent_win & not_warm] = "Recent (15-29d)"
         df["pool"] = pool_label
     else:
         tier = pd.Series(0, index=df.index)                       # never-ordered
@@ -181,7 +202,8 @@ def score_by_date(pool: pd.DataFrame) -> pd.DataFrame:
         tier[(days_since >= 31) & (days_since < 60)] = 2          # P30D
         df["pool"] = "Churned"
         df.loc[(days_since >= 31) & (days_since < 60), "pool"] = "P30D"
-        df.loc[df["last_delivered_date"].isna(), "pool"] = "Never-Ordered"
+        df.loc[df["last_delivered_date"].isna(), "pool"] = "New Store (No Order)"
+        df.loc[(days_since >= RECENT_MIN_DAYS) & (days_since <= RECENT_MAX_DAYS), "pool"] = "Recent (15-29d)"
 
     # within-tier recency: smaller days_since = higher. never-ordered sorts last.
     recency = 1.0 - _minmax(days_since.fillna(days_since.max() if days_since.notna().any() else 0))
@@ -359,6 +381,8 @@ def _hybrid_beats(ranked: pd.DataFrame, alpha: float = 0.65, cap: int = BEAT_TAR
     ns = _minmax(df["score"]).to_numpy()
     lats = df["lat"].to_numpy()
     lons = df["long"].to_numpy()
+    is_recent = (df["pool"] == "Recent (15-29d)").to_numpy() if "pool" in df.columns else np.zeros(n, dtype=bool)
+    recent_cap = int(RECENT_BEAT_CAP * cap)  # max "Recent (15-29d)" stores per beat
     K = max(1, math.ceil(n / cap))
 
     if K == 1:
@@ -384,6 +408,7 @@ def _hybrid_beats(ranked: pd.DataFrame, alpha: float = 0.65, cap: int = BEAT_TAR
     unassigned = np.ones(n, dtype=bool)
     beats_idx = [[] for _ in range(K)]
     counts = [0] * K
+    recent_counts = [0] * K
     remaining = n
     rnd = 0
     while remaining > 0:
@@ -393,10 +418,17 @@ def _hybrid_beats(ranked: pd.DataFrame, alpha: float = 0.65, cap: int = BEAT_TAR
             if counts[bi] >= cap or remaining == 0:
                 continue
             g = np.where(unassigned, gain[bi], -np.inf)
+            # enforce the 15-29d cap: once a beat is full of recent stores, block more
+            if recent_counts[bi] >= recent_cap:
+                g = np.where(is_recent, -np.inf, g)
+            if not np.isfinite(g).any():
+                continue  # only recent stores left for a capped beat — leave them
             pick = int(np.argmax(g))
             beats_idx[bi].append(pick)
             unassigned[pick] = False
             counts[bi] += 1
+            if is_recent[pick]:
+                recent_counts[bi] += 1
             remaining -= 1
             progressed = True
         if not progressed:
@@ -416,11 +448,13 @@ def _hybrid_beats(ranked: pd.DataFrame, alpha: float = 0.65, cap: int = BEAT_TAR
 # Streamlit app
 # ---------------------------------------------------------------------------
 
-def run_global_pipeline(df: pd.DataFrame, cutoff_year: int | None = None, alpha: float = 0.65) -> list[pd.DataFrame]:
+def run_global_pipeline(df: pd.DataFrame, cutoff_year: int | None = None, alpha: float = 0.65, include_recent: bool = False) -> list[pd.DataFrame]:
     """Rank all eligible stores by last delivery date (NCMB → P30D → Churned, NCMB
     always included), then group them into balanced geographic beats that blend
-    lead urgency and travel (`alpha` = urgency weight)."""
-    all_stores = _apply_hard_exclusions(df.copy(), cutoff_year=cutoff_year, include_ncmb=True)
+    lead urgency and travel (`alpha` = urgency weight). When `include_recent` is on,
+    stores that last ordered 15-29 days ago are added as an opportunistic segment,
+    capped at 40% of each beat."""
+    all_stores = _apply_hard_exclusions(df.copy(), cutoff_year=cutoff_year, include_ncmb=True, include_recent=include_recent)
     if all_stores.empty:
         return []
     ranked = score_by_date(all_stores)
@@ -505,6 +539,15 @@ def main():
     )
     alpha = urgency_pct / 100
 
+    include_recent = st.checkbox(
+        "[PN AND LU AGENTS] Include recently-slipping stores (last ordered 15–29 days ago)",
+        value=False,
+        help="For PN and LU agents. Adds stores that ordered 15–29 days ago as an opportunistic 'if nearby, visit' segment. "
+             "Capped at 40% of any route so they never crowd out lapsed customers.",
+    )
+    if include_recent:
+        st.caption("For this option, upload data from this query only: https://data.growsari.com/queries/49599")
+
     years_in_data = sorted(
         df["last_delivered_date"].dropna().dt.year.unique().tolist(),
         reverse=True,
@@ -525,13 +568,14 @@ def main():
     st.caption("Stores rank by last delivery date (NCMB → P30D → Churned, always including Non-Current Month Buyers), then split into balanced geographic beats using the urgency/travel weight above.")
 
     if st.button("Generate All Beats"):
-        beats = run_global_pipeline(df, cutoff_year=cutoff_year, alpha=alpha)
+        beats = run_global_pipeline(df, cutoff_year=cutoff_year, alpha=alpha, include_recent=include_recent)
         st.session_state["beats"] = beats
         st.session_state["agent_name"] = agent_name.strip() or "Agent"
         st.session_state["cutoff_year"] = cutoff_year
         st.session_state.pop("_map", None)
         st.session_state.pop("_map_key", None)
-        st.success(f"Generated {len(beats)} beat(s) — ranked by last delivery date (NCMB → P30D → Churned), {urgency_pct}% urgency / {100 - urgency_pct}% geography")
+        recent_note = " + 15–29d recent stores (≤40%/beat)" if include_recent else ""
+        st.success(f"Generated {len(beats)} beat(s) — ranked by last delivery date (NCMB → P30D → Churned), {urgency_pct}% urgency / {100 - urgency_pct}% geography{recent_note}")
 
     if "beats" in st.session_state:
         beats = st.session_state["beats"]
@@ -546,6 +590,7 @@ def main():
                 "Stores": len(b),
                 "Travel (km)": round(route_distance_km(b), 1),
                 "Avg Score": round(b["score"].mean(), 3) if "score" in b.columns else None,
+                "Active Stores (15-29d)": int((b["pool"] == "Recent (15-29d)").sum()) if "pool" in b.columns else 0,
             }
             for i, b in enumerate(beats)
         ])
