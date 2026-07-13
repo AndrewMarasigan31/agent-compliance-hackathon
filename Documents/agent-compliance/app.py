@@ -648,7 +648,8 @@ def main():
             if col in daily_list.columns:
                 cols.append(col)
         table = daily_list[[c for c in cols if c in daily_list.columns]].copy()
-        table["Days Since Last Order"] = table["last_delivered_date"].apply(_days_since_label)
+        # keep as string ("Never" + integer days) so Arrow doesn't choke on a mixed-type column
+        table["Days Since Last Order"] = table["last_delivered_date"].apply(_days_since_label).astype(str)
         table["Last Delivery Date"] = table["last_delivered_date"].dt.strftime("%Y-%m-%d").fillna("Never")
         table["score"] = table["score"].round(2)
         table["visit_date"] = pd.to_datetime(table["visit_date"], errors="coerce").dt.strftime("%Y-%m-%d").fillna("Never")
