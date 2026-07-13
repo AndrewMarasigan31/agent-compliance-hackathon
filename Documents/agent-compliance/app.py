@@ -21,6 +21,13 @@ CLOSED_REASONS = {
 }
 EXCLUDED_STATUSES = {"pending", "dispatched", "packed", "processing", "ready_to_redispatch"}
 
+# Columns the pipeline reads directly — a missing one would crash, so we validate up front.
+REQUIRED_COLUMNS = [
+    "store_name", "lat", "long", "last_delivered_date", "visit_date",
+    "latest_order_status", "bakit hindi umorder si customer?",
+    "number_of_visits", "no_delivered_orders",
+]
+
 
 def _filter_base(df: pd.DataFrame) -> pd.DataFrame:
     df = df[~df["latest_order_status"].isin(EXCLUDED_STATUSES)]
@@ -524,10 +531,41 @@ def main():
 
     agent_name = st.text_input("Agent Name", placeholder="e.g. Juan dela Cruz")
 
-    raw = pd.read_csv(uploaded)
+    try:
+        raw = pd.read_csv(uploaded)
+    except Exception as e:
+        st.error(f"Could not read this CSV. Is it a valid store-leads export? (details: {e})")
+        return
+
+    if raw.empty:
+        st.error("The uploaded file has no rows. Please upload a store-leads export with data.")
+        return
+
+    missing = [c for c in REQUIRED_COLUMNS if c not in raw.columns]
+    if missing:
+        st.error(
+            "This file is missing required column(s): **" + ", ".join(missing) + "**. "
+            "Please upload the correct store-leads export (or the query linked under the checkbox)."
+        )
+        return
+
     raw["last_delivered_date"] = pd.to_datetime(raw["last_delivered_date"], errors="coerce")
     raw["visit_date"] = pd.to_datetime(raw["visit_date"], errors="coerce")
+    raw["lat"] = pd.to_numeric(raw["lat"], errors="coerce")
+    raw["long"] = pd.to_numeric(raw["long"], errors="coerce")
+
+    bad_coords = raw["lat"].isna() | raw["long"].isna()
+    if bad_coords.any():
+        st.warning(f"Skipped {int(bad_coords.sum())} store(s) with missing or invalid coordinates.")
+        raw = raw[~bad_coords].reset_index(drop=True)
+    if raw.empty:
+        st.error("No stores with valid coordinates to route. Check the lat/long columns in your file.")
+        return
+
     df = _filter_base(raw)
+    if df.empty:
+        st.warning("After filtering (closed, in-transit, recently visited), no stores remain to route.")
+        return
     st.success(f"Loaded {len(df)} stores from uploaded file.")
 
     urgency_pct = st.slider(
@@ -568,7 +606,14 @@ def main():
     st.caption("Stores rank by last delivery date (NCMB → P30D → Churned, always including Non-Current Month Buyers), then split into balanced geographic beats using the urgency/travel weight above.")
 
     if st.button("Generate All Beats"):
-        beats = run_global_pipeline(df, cutoff_year=cutoff_year, alpha=alpha, include_recent=include_recent)
+        try:
+            beats = run_global_pipeline(df, cutoff_year=cutoff_year, alpha=alpha, include_recent=include_recent)
+        except Exception as e:
+            st.error(f"Something went wrong generating the routes: {e}. The file may have unexpected data — try re-exporting it.")
+            st.stop()
+        if not beats:
+            st.warning("No eligible stores to build routes from with the current settings. Try a different cutoff year or uncheck the 15–29 day option.")
+            st.stop()
         st.session_state["beats"] = beats
         st.session_state["agent_name"] = agent_name.strip() or "Agent"
         st.session_state["cutoff_year"] = cutoff_year
