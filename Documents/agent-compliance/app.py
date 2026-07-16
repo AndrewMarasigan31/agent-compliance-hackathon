@@ -8,6 +8,11 @@ from datetime import datetime, timedelta
 from sklearn.cluster import KMeans
 from streamlit_folium import st_folium
 
+try:
+    from retention_usernames import RETENTION_USERNAMES
+except ImportError:  # list file missing — degrade quietly rather than crash the app
+    RETENTION_USERNAMES = frozenset()
+
 CSV_PATH = os.path.join(os.path.dirname(__file__), "store_leads.csv")
 TODAY = pd.Timestamp(datetime.now().date())
 BEAT_TARGET = 50  # stores per beat (matches the deployed app's beat size)
@@ -520,6 +525,24 @@ def _add_beat_to_map(m: folium.Map, daily_list: pd.DataFrame, color: str, beat_l
         folium.PolyLine(coords, color=color, weight=2, opacity=0.7).add_to(m)
 
 
+def tag_retention(beats: list[pd.DataFrame]) -> list[pd.DataFrame]:
+    """Relabel `pool` to 'Retention' for stores in the retention username list.
+
+    Display-only: runs AFTER beats are built, so routing, ranking and the 15-29d
+    cap are untouched. Only the label shown in the table and CSV changes.
+    """
+    if not RETENTION_USERNAMES:
+        return beats
+    out = []
+    for b in beats:
+        b = b.copy()
+        if "username" in b.columns and "pool" in b.columns:
+            is_ret = b["username"].astype(str).str.strip().isin(RETENTION_USERNAMES)
+            b.loc[is_ret, "pool"] = "Retention"
+        out.append(b)
+    return out
+
+
 def main():
     st.set_page_config(page_title="Agent Compliance — Daily Store List", layout="wide")
     st.title("Agent Compliance — Daily Store List")
@@ -614,6 +637,7 @@ def main():
         if not beats:
             st.warning("No eligible stores to build routes from with the current settings. Try a different cutoff year or uncheck the 15–29 day option.")
             st.stop()
+        beats = tag_retention(beats)  # display-only relabel, after all routing logic
         st.session_state["beats"] = beats
         st.session_state["agent_name"] = agent_name.strip() or "Agent"
         st.session_state["cutoff_year"] = cutoff_year
@@ -638,6 +662,7 @@ def main():
                 "Churned": int((b["pool"] == "Churned").sum()) if "pool" in b.columns else 0,
                 "P30D": int((b["pool"] == "P30D").sum()) if "pool" in b.columns else 0,
                 "Active Stores (15-29d)": int((b["pool"] == "Recent (15-29d)").sum()) if "pool" in b.columns else 0,
+                "Retention": int((b["pool"] == "Retention").sum()) if "pool" in b.columns else 0,
             }
             for i, b in enumerate(beats)
         ])
