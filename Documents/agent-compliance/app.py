@@ -66,6 +66,10 @@ def _apply_hard_exclusions(df: pd.DataFrame, cutoff_year: int | None = None, inc
     if "bucket" in df.columns:
         df = df[df["bucket"] != "Current Month Buyer"].copy()
 
+    # Exclude the retention segment — handled by retention, not by a field visit
+    if RETENTION_USERNAMES and "username" in df.columns:
+        df = df[~df["username"].astype(str).str.strip().isin(RETENTION_USERNAMES)].copy()
+
     # Keep only stores in the eligible day windows
     days_since = (TODAY - df["last_delivered_date"]).dt.days
     nr_cutoff_date = pd.Timestamp(f"{cutoff_year}-01-01") if cutoff_year is not None else None
@@ -525,24 +529,6 @@ def _add_beat_to_map(m: folium.Map, daily_list: pd.DataFrame, color: str, beat_l
         folium.PolyLine(coords, color=color, weight=2, opacity=0.7).add_to(m)
 
 
-def tag_retention(beats: list[pd.DataFrame]) -> list[pd.DataFrame]:
-    """Relabel `pool` to 'Retention' for stores in the retention username list.
-
-    Display-only: runs AFTER beats are built, so routing, ranking and the 15-29d
-    cap are untouched. Only the label shown in the table and CSV changes.
-    """
-    if not RETENTION_USERNAMES:
-        return beats
-    out = []
-    for b in beats:
-        b = b.copy()
-        if "username" in b.columns and "pool" in b.columns:
-            is_ret = b["username"].astype(str).str.strip().isin(RETENTION_USERNAMES)
-            b.loc[is_ret, "pool"] = "Retention"
-        out.append(b)
-    return out
-
-
 def main():
     st.set_page_config(page_title="Agent Compliance — Daily Store List", layout="wide")
     st.title("Agent Compliance — Daily Store List")
@@ -591,6 +577,11 @@ def main():
         return
     st.success(f"Loaded {len(df)} stores from uploaded file.")
 
+    if RETENTION_USERNAMES and "username" in df.columns:
+        n_retention = int(df["username"].astype(str).str.strip().isin(RETENTION_USERNAMES).sum())
+        if n_retention:
+            st.caption(f"{n_retention} store(s) in the retention segment will be excluded from routing.")
+
     urgency_pct = st.slider(
         "Urgency vs travel balance",
         min_value=0, max_value=100, value=65, step=5,
@@ -637,7 +628,6 @@ def main():
         if not beats:
             st.warning("No eligible stores to build routes from with the current settings. Try a different cutoff year or uncheck the 15–29 day option.")
             st.stop()
-        beats = tag_retention(beats)  # display-only relabel, after all routing logic
         st.session_state["beats"] = beats
         st.session_state["agent_name"] = agent_name.strip() or "Agent"
         st.session_state["cutoff_year"] = cutoff_year
@@ -662,7 +652,6 @@ def main():
                 "Churned": int((b["pool"] == "Churned").sum()) if "pool" in b.columns else 0,
                 "P30D": int((b["pool"] == "P30D").sum()) if "pool" in b.columns else 0,
                 "Active Stores (15-29d)": int((b["pool"] == "Recent (15-29d)").sum()) if "pool" in b.columns else 0,
-                "Retention": int((b["pool"] == "Retention").sum()) if "pool" in b.columns else 0,
             }
             for i, b in enumerate(beats)
         ])
