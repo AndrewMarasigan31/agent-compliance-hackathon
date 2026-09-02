@@ -34,6 +34,11 @@ REQUIRED_COLUMNS = [
 ]
 
 
+def _norm_username(s: pd.Series) -> pd.Series:
+    """Lowercase + drop non-alphanumerics, so exports with stray case or encoding junk still match."""
+    return s.astype(str).str.lower().str.replace(r"[^a-z0-9]", "", regex=True)
+
+
 def _filter_base(df: pd.DataFrame) -> pd.DataFrame:
     df = df[~df["latest_order_status"].isin(EXCLUDED_STATUSES)]
     df = df[~df["bakit hindi umorder si customer?"].isin(CLOSED_REASONS)]
@@ -68,7 +73,7 @@ def _apply_hard_exclusions(df: pd.DataFrame, cutoff_year: int | None = None, inc
 
     # Exclude the retention segment — handled by retention, not by a field visit
     if RETENTION_USERNAMES and "username" in df.columns:
-        df = df[~df["username"].astype(str).str.strip().isin(RETENTION_USERNAMES)].copy()
+        df = df[~_norm_username(df["username"]).isin(RETENTION_USERNAMES)].copy()
 
     # Keep only stores in the eligible day windows
     days_since = (TODAY - df["last_delivered_date"]).dt.days
@@ -578,7 +583,7 @@ def main():
     st.success(f"Loaded {len(df)} stores from uploaded file.")
 
     if RETENTION_USERNAMES and "username" in df.columns:
-        n_retention = int(df["username"].astype(str).str.strip().isin(RETENTION_USERNAMES).sum())
+        n_retention = int(_norm_username(df["username"]).isin(RETENTION_USERNAMES).sum())
         if n_retention:
             st.caption(f"{n_retention} store(s) in the retention segment will be excluded from routing.")
 
